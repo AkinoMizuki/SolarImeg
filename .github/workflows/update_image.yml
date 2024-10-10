@@ -22,6 +22,7 @@ jobs:
 
       - name: index.html を生成
         run: |
+          TIMESTAMP=$(date '+%s')
           echo '<!DOCTYPE html>
           <html lang="ja">
           <head>
@@ -31,8 +32,8 @@ jobs:
           <body>
               <h1>画像一覧</h1>
               <ul>
-                  <li><a href="latest.jpg">latest.jpg</a></li>
-                  <li><a href="latest2.jpg">latest2.jpg</a></li>
+                  <li><a href="latest.jpg?'$TIMESTAMP'">latest.jpg</a></li>
+                  <li><a href="latest2.jpg?'$TIMESTAMP'">latest2.jpg</a></li>
               </ul>
               <p>最終更新日時: '$(date '+%Y-%m-%d %H:%M:%S')'</p>
           </body>
