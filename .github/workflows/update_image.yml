@@ -12,13 +12,22 @@ jobs:
       contents: write  # リポジトリへの書き込み権限を付与
 
     steps:
-      - uses: actions/checkout@v4  # バージョンを v4 に更新
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 画像をダウンロード
         run: |
           mkdir -p image
           curl -L -o image/latest.jpg https://soho.nascom.nasa.gov/data/realtime/hmi_igr/1024/latest.jpg
           curl -L -o image/latest2.jpg https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg
+
+      - name: ダウンロードした画像のハッシュを表示
+        run: |
+          echo "latest.jpg のハッシュ値:"
+          sha256sum image/latest.jpg
+          echo "latest2.jpg のハッシュ値:"
+          sha256sum image/latest2.jpg
 
       - name: index.html を生成
         run: |
@@ -32,8 +41,8 @@ jobs:
           <body>
               <h1>画像一覧</h1>
               <ul>
-                  <li><a href="latest.jpg?'$TIMESTAMP'">latest.jpg</a></li>
-                  <li><a href="latest2.jpg?'$TIMESTAMP'">latest2.jpg</a></li>
+                  <li><a href="latest.jpg">latest.jpg</a></li>
+                  <li><a href="latest2.jpg">latest2.jpg</a></li>
               </ul>
               <p>最終更新日時: '$(date '+%Y-%m-%d %H:%M:%S')'</p>
           </body>
@@ -44,5 +53,5 @@ jobs:
           git config --local user.name "GitHub Actions"
           git config --local user.email "actions@github.com"
           git add image/latest.jpg image/latest2.jpg image/index.html
-          git commit --allow-empty -m "最新の画像を更新: $(date '+%Y-%m-%d %H:%M:%S')"
+          git commit -m "最新の画像を更新: $(date '+%Y-%m-%d %H:%M:%S')" || echo "コミットする変更はありません。"
           git push
