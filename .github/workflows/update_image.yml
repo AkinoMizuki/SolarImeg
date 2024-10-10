@@ -9,9 +9,9 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # リポジトリへの書き込み権限
-      pages: write     # GitHub Pages への書き込み権限
-      id-token: write  # デプロイに必要
+      contents: write
+      pages: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +29,25 @@ jobs:
         run: |
           node update_images.mjs
 
+      - name: index.html を生成
+        run: |
+          TIMESTAMP=$(date '+%s')
+          echo '<!DOCTYPE html>
+          <html lang="ja">
+          <head>
+              <meta charset="UTF-8">
+              <title>画像一覧</title>
+          </head>
+          <body>
+              <h1>画像一覧</h1>
+              <ul>
+                  <li><img src="latest.jpg?'$TIMESTAMP'" alt="latest.jpg"></li>
+                  <li><img src="latest2.jpg?'$TIMESTAMP'" alt="latest2.jpg"></li>
+              </ul>
+              <p>最終更新日時: '$(date '+%Y-%m-%d %H:%M:%S')'</p>
+          </body>
+          </html>' > _site/index.html
+
       - name: GitHub Pages 用のデータをアップロード
         uses: actions/upload-pages-artifact@v1
         with:
@@ -38,8 +57,8 @@ jobs:
     needs: build-and-deploy
     runs-on: ubuntu-latest
     permissions:
-      pages: write     # GitHub Pages への書き込み権限
-      id-token: write  # デプロイに必要
+      pages: write
+      id-token: write
 
     steps:
       - name: デプロイ
