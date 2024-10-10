@@ -6,52 +6,41 @@ on:
   workflow_dispatch:      # 手動実行を可能にする
 
 jobs:
-  update-image:
+  build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # リポジトリへの書き込み権限を付与
+      contents: write  # リポジトリへの書き込み権限
+      pages: write     # GitHub Pages への書き込み権限
+      id-token: write  # デプロイに必要
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Node.js をセットアップ
+        uses: actions/setup-node@v3
         with:
-          fetch-depth: 0
+          node-version: '18'
 
-      - name: 画像をダウンロード
+      - name: 依存関係のインストール
         run: |
-          mkdir -p image
-          curl -L -o image/latest.jpg https://soho.nascom.nasa.gov/data/realtime/hmi_igr/1024/latest.jpg
-          curl -L -o image/latest2.jpg https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg
+          npm install js-yaml sharp
 
-      - name: ダウンロードした画像のハッシュを表示
+      - name: 画像の更新スクリプトを実行
         run: |
-          echo "latest.jpg のハッシュ値:"
-          sha256sum image/latest.jpg
-          echo "latest2.jpg のハッシュ値:"
-          sha256sum image/latest2.jpg
+          node update_images.mjs
 
-      - name: index.html を生成
-        run: |
-          TIMESTAMP=$(date '+%s')
-          echo '<!DOCTYPE html>
-          <html lang="ja">
-          <head>
-              <meta charset="UTF-8">
-              <title>画像一覧</title>
-          </head>
-          <body>
-              <h1>画像一覧</h1>
-              <ul>
-                  <li><a href="latest.jpg">latest.jpg</a></li>
-                  <li><a href="latest2.jpg">latest2.jpg</a></li>
-              </ul>
-              <p>最終更新日時: '$(date '+%Y-%m-%d %H:%M:%S')'</p>
-          </body>
-          </html>' > image/index.html
+      - name: GitHub Pages 用のデータをアップロード
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: _site/
 
-      - name: 変更をコミットしてプッシュ
-        run: |
-          git config --local user.name "GitHub Actions"
-          git config --local user.email "actions@github.com"
-          git add image/latest.jpg image/latest2.jpg image/index.html
-          git commit -m "最新の画像を更新: $(date '+%Y-%m-%d %H:%M:%S')" || echo "コミットする変更はありません。"
-          git push
+  deploy:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write     # GitHub Pages への書き込み権限
+      id-token: write  # デプロイに必要
+
+    steps:
+      - name: デプロイ
+        uses: actions/deploy-pages@v1
