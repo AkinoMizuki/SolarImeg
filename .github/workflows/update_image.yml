@@ -23,6 +23,6 @@ jobs:
         run: |
           git config --local user.name "GitHub Actions"
           git config --local user.email "actions@github.com"
-          git add image/lastest.ipg image/latest2.jpg
+          git add image/lastest.jpg image/latest2.jpg
           git commit -m "最新の画像を更新"
           git push
