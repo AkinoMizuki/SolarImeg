@@ -3,7 +3,8 @@ name: 画像更新
 on:
   schedule:
     - cron: '0 * * * *'  # 毎時0分に実行
-  workflow_dispatch:
+  workflow_dispatch:      # 手動実行を可能にする
+
 jobs:
   update-image:
     runs-on: ubuntu-latest
@@ -16,13 +17,17 @@ jobs:
       - name: 画像をダウンロード
         run: |
           mkdir -p image
-          curl -L -o image/lastest.jpg https://soho.nascom.nasa.gov/data/realtime/hmi_igr/1024/latest.jpg
+          curl -L -o image/latest.jpg https://soho.nascom.nasa.gov/data/realtime/hmi_igr/1024/latest.jpg
           curl -L -o image/latest2.jpg https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg
 
       - name: 変更をコミットしてプッシュ
         run: |
           git config --local user.name "GitHub Actions"
           git config --local user.email "actions@github.com"
-          git add image/lastest.jpg image/latest2.jpg
-          git commit -m "最新の画像を更新"
-          git push
+          git add image/latest.jpg image/latest2.jpg
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "最新の画像を更新"
+            git push
+          else
+            echo "No changes to commit"
+          fi
