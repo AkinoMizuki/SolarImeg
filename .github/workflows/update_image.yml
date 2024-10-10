@@ -20,10 +20,28 @@ jobs:
           curl -L -o image/latest.jpg https://soho.nascom.nasa.gov/data/realtime/hmi_igr/1024/latest.jpg
           curl -L -o image/latest2.jpg https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg
 
+      - name: index.html を生成
+        run: |
+          echo '<!DOCTYPE html>
+          <html lang="ja">
+          <head>
+              <meta charset="UTF-8">
+              <title>画像一覧</title>
+          </head>
+          <body>
+              <h1>画像一覧</h1>
+              <ul>
+                  <li><a href="latest.jpg">latest.jpg</a></li>
+                  <li><a href="latest2.jpg">latest2.jpg</a></li>
+              </ul>
+              <p>最終更新日時: '$(date '+%Y-%m-%d %H:%M:%S')'</p>
+          </body>
+          </html>' > image/index.html
+
       - name: 変更をコミットしてプッシュ
         run: |
           git config --local user.name "GitHub Actions"
           git config --local user.email "actions@github.com"
-          git add image/latest.jpg image/latest2.jpg
-          git commit --allow-empty -m "最新の画像を更新"
+          git add image/latest.jpg image/latest2.jpg image/index.html
+          git commit --allow-empty -m "最新の画像を更新: $(date '+%Y-%m-%d %H:%M:%S')"
           git push
