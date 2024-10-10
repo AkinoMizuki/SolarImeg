@@ -1,0 +1,28 @@
+name: 画像更新
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # 毎時0分に実行
+
+jobs:
+  update-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # リポジトリへの書き込み権限を付与
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: 画像をダウンロード
+        run: |
+          mkdir -p image
+          curl -L -o image/lastest.ipg https://soho.nascom.nasa.gov/data/realtime/hmi_igr/1024/latest.jpg
+          curl -L -o image/latest2.jpg https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg
+
+      - name: 変更をコミットしてプッシュ
+        run: |
+          git config --local user.name "GitHub Actions"
+          git config --local user.email "actions@github.com"
+          git add image/lastest.ipg image/latest2.jpg
+          git commit -m "最新の画像を更新"
+          git push
