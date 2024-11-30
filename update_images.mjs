@@ -20,12 +20,18 @@ try {
       // HTTPエラーの場合の処理
       if (!resp.ok) {
         console.error(`Failed to fetch image from ${data.url}: ${resp.statusText}`);
-        continue;
+        continue; // 差し替えを行わず次の画像へ
       }
 
       const imageBuffer = Buffer.from(await resp.arrayBuffer());
       const image = sharp(imageBuffer);
       const metadata = await image.metadata();
+
+      // 画像フォーマットチェック
+      if (!metadata.format) {
+        console.error(`Unsupported image format for ${data.url}`);
+        continue; // 差し替えを行わず次の画像へ
+      }
 
       // 画像サイズを確認しリサイズ
       let processedImage = image;
@@ -45,6 +51,7 @@ try {
       console.log(`Successfully processed and saved ${data.fileName}`);
     } catch (error) {
       console.error(`Error processing ${data.url}:`, error.message);
+      console.error('Skipping this image without replacing the file.');
     }
   }
 } catch (error) {
