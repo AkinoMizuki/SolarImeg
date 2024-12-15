@@ -45,8 +45,12 @@ jobs:
           <body>
               <h1>画像一覧</h1>
               <ul>
+              　　　<p>SOHO</p>
                   <li><img src="latest.jpg?'$TIMESTAMP'" alt="latest.jpg"></li>
                   <li><img src="latest2.jpg?'$TIMESTAMP'" alt="latest2.jpg"></li>
+                   <p>名古屋市科学館からの太陽像</p>
+                  <li><img src="now_wh.jpg?'$TIMESTAMP'" alt="now_wh.jpg"></li>
+                  <li><img src="now_ha.jpg?'$TIMESTAMP'" alt="now_ha.jpg"></li>
               </ul>
               <p>最終更新日時: '$(date '+%Y-%m-%d %H:%M:%S')'</p>
           </body>
