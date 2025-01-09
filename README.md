@@ -12,3 +12,6 @@ https://akinomizuki.github.io/SolarImeg/LASCO_C2.jpg
 https://akinomizuki.github.io/SolarImeg/now_wh.jpg
 
 https://akinomizuki.github.io/SolarImeg/now_ha.jpg
+
+# 名古屋市科学館からの太陽像
+http://www.ncsm.city.nagoya.jp/astro/sun/
