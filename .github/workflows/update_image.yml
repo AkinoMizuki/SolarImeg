@@ -59,7 +59,7 @@ jobs:
           </html>' > _site/index.html
 
       - name: GitHub Pages 用のデータをアップロード
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site/
 
@@ -72,4 +72,4 @@ jobs:
 
     steps:
       - name: デプロイ
-        uses: actions/deploy-pages@v1
+        uses: actions/deploy-pages@v4
