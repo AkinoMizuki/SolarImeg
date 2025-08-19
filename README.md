@@ -18,6 +18,7 @@ http://www.ncsm.city.nagoya.jp/astro/sun/
 
 # 3時間更新の地球の雲
 https://akinomizuki.github.io/SolarImeg/clouds.jpg
+https://akinomizuki.github.io/SolarImeg/specular.jpg
 
 # live-cloud-maps
 https://github.com/matteason/live-cloud-maps?tab=readme-ov-file
