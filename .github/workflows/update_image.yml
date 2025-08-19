@@ -51,6 +51,7 @@ jobs:
                   <li><img src="now_ha.jpg?'$TIMESTAMP'" alt="now_ha.jpg"></li>
                    <p>live-cloud-maps</p>
                   <li><img src="clouds.jpg?'$TIMESTAMP'" alt="clouds.jpg"></li>
+                  <li><img src="specular.jpg?'$TIMESTAMP'" alt="specular.jpg"></li>
               </ul>
               <p>最終更新日時: '$(date '+%Y-%m-%d %H:%M:%S')'</p>
           </body>
