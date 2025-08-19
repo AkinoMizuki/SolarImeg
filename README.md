@@ -15,3 +15,9 @@ https://akinomizuki.github.io/SolarImeg/now_ha.jpg
 
 # 名古屋市科学館からの太陽像
 http://www.ncsm.city.nagoya.jp/astro/sun/
+
+# 3時間更新の地球の雲
+https://akinomizuki.github.io/SolarImeg/clouds.jpg
+
+# live-cloud-maps
+https://github.com/matteason/live-cloud-maps?tab=readme-ov-file
