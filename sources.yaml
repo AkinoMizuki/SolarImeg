@@ -10,3 +10,5 @@
   fileName: 'now_wh.jpg'
 - url: 'http://www.ncsm.city.nagoya.jp/astro/sun/now_ha.jpg'
   fileName: 'now_ha.jpg'
+- url: 'https://clouds.matteason.co.uk/images/8192x4096/clouds-alpha.png'
+  fileName: 'clouds.jpg'
