@@ -12,3 +12,5 @@
   fileName: 'now_ha.jpg'
 - url: 'https://clouds.matteason.co.uk/images/8192x4096/clouds-alpha.png'
   fileName: 'clouds.jpg'
+- url: 'https://clouds.matteason.co.uk/images/8192x4096/specular.jpg'
+  fileName: 'specular.jpg'
