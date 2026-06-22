@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import sharp from 'sharp';
 import path from 'node:path';
 
