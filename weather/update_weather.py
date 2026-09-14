@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from cloud_generator import update_cloud_textures
+from cloud_generator import CLOUD_PROCESSING_VERSION, update_cloud_textures
 from wind_generator import update_wind_textures
 
 PUBLISHED_BASE_URL = "https://akinomizuki.github.io/SolarImeg/weather"
@@ -39,7 +39,11 @@ def _seed_from_published_site(output_dir: Path) -> dict[str, bool]:
             response = requests.get(
                 url,
                 timeout=30,
-                headers={"User-Agent": "AkinoMizuki-SolarImeg/WeatherUpdater"},
+                headers={
+                    "Cache-Control": "no-cache",
+                    "User-Agent": "AkinoMizuki-SolarImeg/WeatherUpdater",
+                },
+                params={"t": str(int(datetime.now(timezone.utc).timestamp()))},
             )
             response.raise_for_status()
             (output_dir / name).write_bytes(response.content)
@@ -68,20 +72,49 @@ def main() -> None:
 
     seeded = _seed_from_published_site(OUTPUT_DIR)
     previous_metadata = _read_existing_metadata(OUTPUT_DIR / "metadata.json")
+
+    previous_cloud_previous_utc = previous_metadata.get("cloudPreviousUtc")
     previous_cloud_current_utc = previous_metadata.get("cloudCurrentUtc")
+    previous_processing_version = previous_metadata.get("cloudProcessingVersion")
+    force_cloud_history_reset = (
+        previous_processing_version != CLOUD_PROCESSING_VERSION
+    )
+
     metadata: dict[str, Any] = dict(previous_metadata)
     metadata["generatedUtc"] = _utc_now_string()
-    metadata["schemaVersion"] = 1
+    metadata["schemaVersion"] = 2
     metadata["publishedFallbackSeeded"] = seeded
 
     cloud_error: Exception | None = None
     wind_error: Exception | None = None
 
     try:
-        metadata.update(update_cloud_textures(OUTPUT_DIR))
-        cloud_current_utc = _utc_now_string()
-        metadata["cloudPreviousUtc"] = previous_cloud_current_utc or cloud_current_utc
-        metadata["cloudCurrentUtc"] = cloud_current_utc
+        cloud_result = update_cloud_textures(
+            OUTPUT_DIR,
+            force_history_reset=force_cloud_history_reset,
+        )
+        metadata.update(cloud_result)
+
+        if cloud_result["cloudHistoryReset"]:
+            # First deployment or processing-format change: both textures are
+            # intentionally identical, so both timestamps start together.
+            cloud_current_utc = _utc_now_string()
+            metadata["cloudPreviousUtc"] = cloud_current_utc
+            metadata["cloudCurrentUtc"] = cloud_current_utc
+        elif cloud_result["cloudImageChanged"]:
+            # Normal transition: old current moved to previous.
+            cloud_current_utc = _utc_now_string()
+            metadata["cloudPreviousUtc"] = (
+                previous_cloud_current_utc or cloud_current_utc
+            )
+            metadata["cloudCurrentUtc"] = cloud_current_utc
+        else:
+            # Upstream image did not change. Keep interpolation endpoints and
+            # timestamps stable instead of pretending a new observation exists.
+            if previous_cloud_previous_utc is not None:
+                metadata["cloudPreviousUtc"] = previous_cloud_previous_utc
+            if previous_cloud_current_utc is not None:
+                metadata["cloudCurrentUtc"] = previous_cloud_current_utc
     except Exception as exc:  # noqa: BLE001 - retain prior published texture when possible
         cloud_error = exc
         print(f"Cloud update failed; keeping published fallback if available: {exc}")
