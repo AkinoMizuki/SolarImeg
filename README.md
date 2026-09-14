@@ -14,6 +14,10 @@ https://akinomizuki.github.io/SolarImeg/weather/cloud_previous.png
 
 https://akinomizuki.github.io/SolarImeg/weather/cloud_current.png
 
+https://akinomizuki.github.io/SolarImeg/weather/specular_previous.jpg
+
+https://akinomizuki.github.io/SolarImeg/weather/specular_current.jpg
+
 https://akinomizuki.github.io/SolarImeg/weather/wind_surface.png
 
 https://akinomizuki.github.io/SolarImeg/weather/wind_850hpa.png
@@ -27,23 +31,34 @@ https://akinomizuki.github.io/SolarImeg/weather/metadata.json
 `weather/cloud_previous.png` / `weather/cloud_current.png` は `live-cloud-maps` の `clouds-alpha.png` をそのまま RGBA 雲テクスチャとして利用します。
 `clouds-alpha.png` は既に雲専用に生成された透明 PNG で、RGB が雲の陰影・明るさ、A が雲の不透明度です。そのため SolarImeg 側で地表除去や雲マスクの再抽出は行いません。
 
-`specular.jpg` は別用途で、海面の反射を雲で隠すためのスペキュラマップです。`live-cloud-maps` 側では海面用のベースマップへ反転した雲マップを Multiply 合成して生成されています。
+Earth Weather では specular も履歴を持ちます。
+
+- `specular_previous.jpg` : `cloud_previous.png` と同じ世代の海面スペキュラ
+- `specular_current.jpg` : `cloud_current.png` と同じ世代の海面スペキュラ
+
+`live-cloud-maps` の `specular.jpg` は海面用のベースマップへ反転した雲マップを Multiply 合成して生成されているため、雲がある場所では海面反射が抑えられます。
+Cloud と Specular は必ずセットで世代交代し、同じ補間率で previous → current を補間する前提です。
+
+```text
+cloud_previous.png    <-> specular_previous.jpg
+cloud_current.png     <-> specular_current.jpg
+```
 
 Unity 側では想定として以下のように使用します。
 
 ```text
 EarthSphere
 ├─ 地表テクスチャ
-└─ specular.jpg
+└─ weather/specular_previous.jpg / specular_current.jpg
    └─ 海面反射。雲のある場所では反射を抑える
 
 CloudSphere
-└─ weather/cloud_current.png / cloud_previous.png
+└─ weather/cloud_previous.png / cloud_current.png
    └─ RGB = 雲の陰影
       A   = 雲の不透明度
 ```
 
-`specular.jpg` と `clouds-alpha.png` は同じ `live-cloud-maps` の雲データを元に生成されるため、組み合わせて使うことで「雲そのもの」と「雲の下で海面反射を抑える処理」を両立できます。
+Cloud と Specular は同じ `live-cloud-maps` の世代を使用するため、Shader 側では同じ `_CloudBlend` などの補間値で両方を補間できます。
 
 ## 風向・風速テクスチャの用途
 
@@ -135,10 +150,11 @@ Sphere の UV 配置によって南北方向が逆に見える場合は、Shader
 
 ## 更新周期
 
-Earth Weather は毎時 20 分に更新します。
-既存の SOHO・名古屋市科学館・`clouds.jpg`・`specular.jpg` は従来どおり 3 時間周期で更新します。
+Earth Weather は毎時 20 分に更新チェックします。
+`live-cloud-maps` 側の雲・specular が変わっていない場合は、previous/current とその時刻を変更しません。
+既存の SOHO・名古屋市科学館・`clouds.jpg`・ルートの `specular.jpg` は従来どおり 3 時間周期で更新します。
 
-`metadata.json` には GFS の run 時刻、forecast hour、valid 時刻、風速の最大エンコード値などを記録します。
+`metadata.json` には Cloud/Specular の previous/current 時刻、GFS の run 時刻、forecast hour、valid 時刻、風速の最大エンコード値などを記録します。
 
 # SolarImeg(名古屋市科学館からの太陽像)
 https://akinomizuki.github.io/SolarImeg/now_wh.jpg
