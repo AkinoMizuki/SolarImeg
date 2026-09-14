@@ -17,6 +17,8 @@ WORK_DIR = Path(".weather_work")
 PUBLIC_FILES = (
     "cloud_previous.png",
     "cloud_current.png",
+    "specular_previous.jpg",
+    "specular_current.jpg",
     "wind_surface.png",
     "wind_850hpa.png",
     "wind_700hpa.png",
@@ -75,6 +77,12 @@ def main() -> None:
 
     previous_cloud_previous_utc = previous_metadata.get("cloudPreviousUtc")
     previous_cloud_current_utc = previous_metadata.get("cloudCurrentUtc")
+    previous_specular_previous_utc = previous_metadata.get(
+        "specularPreviousUtc", previous_cloud_previous_utc
+    )
+    previous_specular_current_utc = previous_metadata.get(
+        "specularCurrentUtc", previous_cloud_current_utc
+    )
     previous_processing_version = previous_metadata.get("cloudProcessingVersion")
     force_cloud_history_reset = (
         previous_processing_version != CLOUD_PROCESSING_VERSION
@@ -82,7 +90,7 @@ def main() -> None:
 
     metadata: dict[str, Any] = dict(previous_metadata)
     metadata["generatedUtc"] = _utc_now_string()
-    metadata["schemaVersion"] = 2
+    metadata["schemaVersion"] = 3
     metadata["publishedFallbackSeeded"] = seeded
 
     cloud_error: Exception | None = None
@@ -96,28 +104,41 @@ def main() -> None:
         metadata.update(cloud_result)
 
         if cloud_result["cloudHistoryReset"]:
-            # First deployment or processing-format change: both textures are
-            # intentionally identical, so both timestamps start together.
-            cloud_current_utc = _utc_now_string()
-            metadata["cloudPreviousUtc"] = cloud_current_utc
-            metadata["cloudCurrentUtc"] = cloud_current_utc
+            # First deployment or output-layout change: cloud/specular previous
+            # and current intentionally begin as the same paired observation.
+            current_utc = _utc_now_string()
+            metadata["cloudPreviousUtc"] = current_utc
+            metadata["cloudCurrentUtc"] = current_utc
+            metadata["specularPreviousUtc"] = current_utc
+            metadata["specularCurrentUtc"] = current_utc
         elif cloud_result["cloudImageChanged"]:
-            # Normal transition: old current moved to previous.
-            cloud_current_utc = _utc_now_string()
-            metadata["cloudPreviousUtc"] = (
-                previous_cloud_current_utc or cloud_current_utc
+            # Normal transition: old cloud/specular current become previous and
+            # both new current files share the same observation timestamp.
+            current_utc = _utc_now_string()
+            previous_utc = previous_cloud_current_utc or current_utc
+            metadata["cloudPreviousUtc"] = previous_utc
+            metadata["cloudCurrentUtc"] = current_utc
+            metadata["specularPreviousUtc"] = (
+                previous_specular_current_utc or previous_utc
             )
-            metadata["cloudCurrentUtc"] = cloud_current_utc
+            metadata["specularCurrentUtc"] = current_utc
         else:
-            # Upstream image did not change. Keep interpolation endpoints and
-            # timestamps stable instead of pretending a new observation exists.
+            # Upstream pair did not change. Keep both interpolation endpoints
+            # and timestamps stable instead of inventing a new observation.
             if previous_cloud_previous_utc is not None:
                 metadata["cloudPreviousUtc"] = previous_cloud_previous_utc
             if previous_cloud_current_utc is not None:
                 metadata["cloudCurrentUtc"] = previous_cloud_current_utc
+            if previous_specular_previous_utc is not None:
+                metadata["specularPreviousUtc"] = previous_specular_previous_utc
+            if previous_specular_current_utc is not None:
+                metadata["specularCurrentUtc"] = previous_specular_current_utc
     except Exception as exc:  # noqa: BLE001 - retain prior published texture when possible
         cloud_error = exc
-        print(f"Cloud update failed; keeping published fallback if available: {exc}")
+        print(
+            "Cloud/specular update failed; keeping published fallback if available: "
+            f"{exc}"
+        )
 
     try:
         metadata.update(update_wind_textures(OUTPUT_DIR, WORK_DIR))
@@ -127,8 +148,10 @@ def main() -> None:
         print(f"Wind update failed; keeping published fallback if available: {exc}")
 
     metadata["cloudStatus"] = "updated" if cloud_error is None else "fallback"
+    metadata["specularStatus"] = metadata["cloudStatus"]
     metadata["windStatus"] = "updated" if wind_error is None else "fallback"
     metadata["cloudError"] = None if cloud_error is None else str(cloud_error)
+    metadata["specularError"] = metadata["cloudError"]
     metadata["windError"] = None if wind_error is None else str(wind_error)
 
     required_images = PUBLIC_FILES[:-1]
