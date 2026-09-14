@@ -51,7 +51,7 @@ jobs:
           python -m pip install -r weather/requirements.txt
           python -m eccodes selfcheck
 
-      - name: 雲・風向風速テクスチャを更新（毎時20分）
+      - name: 雲・スペキュラ・風向風速テクスチャを更新（毎時20分）
         run: |
           python weather/update_weather.py
 
@@ -75,6 +75,8 @@ jobs:
                    <p>Earth Weather</p>
                   <li><a href="weather/cloud_previous.png?'$TIMESTAMP'">weather/cloud_previous.png</a></li>
                   <li><a href="weather/cloud_current.png?'$TIMESTAMP'">weather/cloud_current.png</a></li>
+                  <li><a href="weather/specular_previous.jpg?'$TIMESTAMP'">weather/specular_previous.jpg</a></li>
+                  <li><a href="weather/specular_current.jpg?'$TIMESTAMP'">weather/specular_current.jpg</a></li>
                   <li><a href="weather/wind_surface.png?'$TIMESTAMP'">weather/wind_surface.png</a></li>
                   <li><a href="weather/wind_850hpa.png?'$TIMESTAMP'">weather/wind_850hpa.png</a></li>
                   <li><a href="weather/wind_700hpa.png?'$TIMESTAMP'">weather/wind_700hpa.png</a></li>
