@@ -2,8 +2,11 @@ name: 画像更新
 
 on:
   schedule:
-    - cron: '20 * * * *'  # 毎時20分に実行
-  workflow_dispatch:      # 手動実行を可能にする
+    # 既存画像 + Earth Weather を更新（3時間ごと / UTC）
+    - cron: '20 0,3,6,9,12,15,18,21 * * *'
+    # Earth Weather のみ更新（上記以外の毎時20分 / UTC）
+    - cron: '20 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
+  workflow_dispatch:      # 手動実行時は全画像を更新
 
 jobs:
   build-and-deploy:
@@ -25,9 +28,15 @@ jobs:
         run: |
           npm install js-yaml sharp
 
-      - name: 既存画像の更新スクリプトを実行
+      - name: 既存画像の更新スクリプトを実行（3時間ごと）
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '20 0,3,6,9,12,15,18,21 * * *'
         run: |
           node update_images.mjs
+
+      - name: 既存画像を公開済みデータから復元（Weatherのみ更新時）
+        if: github.event_name == 'schedule' && github.event.schedule == '20 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
+        run: |
+          node seed_existing_images.mjs
 
       - name: Python をセットアップ
         uses: actions/setup-python@v5
@@ -42,7 +51,7 @@ jobs:
           python -m pip install -r weather/requirements.txt
           python -m eccodes selfcheck
 
-      - name: 雲・風向風速テクスチャを更新
+      - name: 雲・風向風速テクスチャを更新（毎時20分）
         run: |
           python weather/update_weather.py
 
