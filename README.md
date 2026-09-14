@@ -22,6 +22,29 @@ https://akinomizuki.github.io/SolarImeg/weather/wind_700hpa.png
 
 https://akinomizuki.github.io/SolarImeg/weather/metadata.json
 
+## 雲テクスチャと specular の関係
+
+`weather/cloud_previous.png` / `weather/cloud_current.png` は `live-cloud-maps` の `clouds-alpha.png` をそのまま RGBA 雲テクスチャとして利用します。
+`clouds-alpha.png` は既に雲専用に生成された透明 PNG で、RGB が雲の陰影・明るさ、A が雲の不透明度です。そのため SolarImeg 側で地表除去や雲マスクの再抽出は行いません。
+
+`specular.jpg` は別用途で、海面の反射を雲で隠すためのスペキュラマップです。`live-cloud-maps` 側では海面用のベースマップへ反転した雲マップを Multiply 合成して生成されています。
+
+Unity 側では想定として以下のように使用します。
+
+```text
+EarthSphere
+├─ 地表テクスチャ
+└─ specular.jpg
+   └─ 海面反射。雲のある場所では反射を抑える
+
+CloudSphere
+└─ weather/cloud_current.png / cloud_previous.png
+   └─ RGB = 雲の陰影
+      A   = 雲の不透明度
+```
+
+`specular.jpg` と `clouds-alpha.png` は同じ `live-cloud-maps` の雲データを元に生成されるため、組み合わせて使うことで「雲そのもの」と「雲の下で海面反射を抑える処理」を両立できます。
+
 ## 風向・風速テクスチャの用途
 
 GFS の UGRD / VGRD から、VRChat / Unity の Shader で直接利用できる RGBA データテクスチャを生成します。
