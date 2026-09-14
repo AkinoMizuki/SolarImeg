@@ -2,7 +2,7 @@ name: 画像更新
 
 on:
   schedule:
-    - cron: '0 */3 * * *'  # 毎時0分に実行
+    - cron: '20 * * * *'  # 毎時20分に実行
   workflow_dispatch:      # 手動実行を可能にする
 
 jobs:
@@ -21,13 +21,30 @@ jobs:
         with:
           node-version: '18'
 
-      - name: 依存関係のインストール
+      - name: 既存画像処理の依存関係をインストール
         run: |
           npm install js-yaml sharp
 
-      - name: 画像の更新スクリプトを実行
+      - name: 既存画像の更新スクリプトを実行
         run: |
           node update_images.mjs
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: weather/requirements.txt
+
+      - name: 気象データ処理の依存関係をインストール
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r weather/requirements.txt
+          python -m eccodes selfcheck
+
+      - name: 雲・風向風速テクスチャを更新
+        run: |
+          python weather/update_weather.py
 
       - name: index.html を生成
         run: |
@@ -46,6 +63,13 @@ jobs:
                   <li><img src="latest2.jpg?'$TIMESTAMP'" alt="latest2.jpg"></li>
                   <li><img src="EIT171.jpg?'$TIMESTAMP'" alt="EIT171.jpg"></li>
                   <li><img src="LASCO_C2.jpg?'$TIMESTAMP'" alt="LASCO_C2.jpg"></li>
+                   <p>Earth Weather</p>
+                  <li><a href="weather/cloud_previous.png?'$TIMESTAMP'">weather/cloud_previous.png</a></li>
+                  <li><a href="weather/cloud_current.png?'$TIMESTAMP'">weather/cloud_current.png</a></li>
+                  <li><a href="weather/wind_surface.png?'$TIMESTAMP'">weather/wind_surface.png</a></li>
+                  <li><a href="weather/wind_850hpa.png?'$TIMESTAMP'">weather/wind_850hpa.png</a></li>
+                  <li><a href="weather/wind_700hpa.png?'$TIMESTAMP'">weather/wind_700hpa.png</a></li>
+                  <li><a href="weather/metadata.json?'$TIMESTAMP'">weather/metadata.json</a></li>
                    <p>名古屋市科学館からの太陽像</p>
                   <li><img src="now_wh.jpg?'$TIMESTAMP'" alt="now_wh.jpg"></li>
                   <li><img src="now_ha.jpg?'$TIMESTAMP'" alt="now_ha.jpg"></li>
