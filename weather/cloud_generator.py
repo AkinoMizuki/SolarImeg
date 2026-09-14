@@ -145,9 +145,10 @@ def update_cloud_textures(
     Update cloud and cloud-masked specular textures as one paired observation.
 
     update_weather.py first seeds output_dir from the currently deployed Pages
-    files. If neither upstream image has changed, all four history files and
-    their timestamps remain untouched. When either image changes, both current
-    files advance together and both old current files become previous.
+    files. live-cloud-maps generates cloud/specular together, so the lossless
+    cloud texture is the generation marker. If it has not changed, all four
+    history files and their timestamps remain untouched. When it changes, both
+    current files advance together and both old current files become previous.
 
     A processing-version change resets previous/current together so Unity never
     cross-fades between incompatible output layouts.
@@ -169,7 +170,6 @@ def update_cloud_textures(
         cloud_current_path.exists() and specular_current_path.exists()
     )
     old_cloud_hash = _existing_pixel_hash(cloud_current_path, "RGBA")
-    old_specular_hash = _existing_pixel_hash(specular_current_path, "RGB")
 
     cloud, specular = _download_stable_pair(
         source_url,
@@ -178,12 +178,13 @@ def update_cloud_textures(
         height,
     )
     new_cloud_hash = _pixel_hash(cloud, "RGBA")
-    new_specular_hash = _pixel_hash(specular, "RGB")
+    new_specular_source_hash = _pixel_hash(specular, "RGB")
 
-    changed = (
-        old_cloud_hash != new_cloud_hash
-        or old_specular_hash != new_specular_hash
-    )
+    # specular_current.jpg is intentionally JPEG, so decoding our re-encoded
+    # published file will not be pixel-identical to the upstream JPEG even when
+    # the source has not changed. Use the lossless cloud PNG as the generation
+    # marker and advance Cloud/Specular strictly as one pair.
+    changed = old_cloud_hash != new_cloud_hash
     history_reset = force_history_reset or not had_complete_current
 
     if history_reset:
@@ -216,7 +217,7 @@ def update_cloud_textures(
         "cloudImageChanged": changed,
         "cloudHistoryReset": history_reset,
         "cloudImageHash": new_cloud_hash,
-        "specularImageHash": new_specular_hash,
+        "specularSourcePixelHash": new_specular_source_hash,
         "cloudPreviousFromPublishedCurrent": (
             had_complete_current and changed and not history_reset
         ),
