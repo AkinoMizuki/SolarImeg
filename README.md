@@ -8,6 +8,20 @@ https://akinomizuki.github.io/SolarImeg/EIT171.jpg
 
 https://akinomizuki.github.io/SolarImeg/LASCO_C2.jpg
 
+# Earth Weather
+
+https://akinomizuki.github.io/SolarImeg/weather/cloud_previous.png
+
+https://akinomizuki.github.io/SolarImeg/weather/cloud_current.png
+
+https://akinomizuki.github.io/SolarImeg/weather/wind_surface.png
+
+https://akinomizuki.github.io/SolarImeg/weather/wind_850hpa.png
+
+https://akinomizuki.github.io/SolarImeg/weather/wind_700hpa.png
+
+https://akinomizuki.github.io/SolarImeg/weather/metadata.json
+
 # SolarImeg(名古屋市科学館からの太陽像)
 https://akinomizuki.github.io/SolarImeg/now_wh.jpg
 
