@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from cloud_generator import CLOUD_PROCESSING_VERSION, update_cloud_textures
+from gmgsi_production import CLOUD_PROCESSING_VERSION, update_cloud_textures
 from wind_generator import update_wind_textures
 
 PUBLISHED_BASE_URL = "https://akinomizuki.github.io/SolarImeg/weather"
@@ -50,7 +50,7 @@ def _seed_from_published_site(output_dir: Path) -> dict[str, bool]:
             response.raise_for_status()
             (output_dir / name).write_bytes(response.content)
             result[name] = True
-        except Exception as exc:  # noqa: BLE001 - first deployment is expected to 404
+        except Exception as exc:  # first deployment may legitimately 404
             print(f"Published fallback unavailable for {name}: {exc}")
             result[name] = False
 
@@ -62,7 +62,7 @@ def _read_existing_metadata(path: Path) -> dict[str, Any]:
         return {}
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"Ignoring invalid previous metadata.json: {exc}")
         return {}
 
@@ -74,15 +74,6 @@ def main() -> None:
 
     seeded = _seed_from_published_site(OUTPUT_DIR)
     previous_metadata = _read_existing_metadata(OUTPUT_DIR / "metadata.json")
-
-    previous_cloud_previous_utc = previous_metadata.get("cloudPreviousUtc")
-    previous_cloud_current_utc = previous_metadata.get("cloudCurrentUtc")
-    previous_specular_previous_utc = previous_metadata.get(
-        "specularPreviousUtc", previous_cloud_previous_utc
-    )
-    previous_specular_current_utc = previous_metadata.get(
-        "specularCurrentUtc", previous_cloud_current_utc
-    )
     previous_processing_version = previous_metadata.get("cloudProcessingVersion")
     force_cloud_history_reset = (
         previous_processing_version != CLOUD_PROCESSING_VERSION
@@ -90,7 +81,7 @@ def main() -> None:
 
     metadata: dict[str, Any] = dict(previous_metadata)
     metadata["generatedUtc"] = _utc_now_string()
-    metadata["schemaVersion"] = 3
+    metadata["schemaVersion"] = 4
     metadata["publishedFallbackSeeded"] = seeded
 
     cloud_error: Exception | None = None
@@ -102,48 +93,17 @@ def main() -> None:
             force_history_reset=force_cloud_history_reset,
         )
         metadata.update(cloud_result)
-
-        if cloud_result["cloudHistoryReset"]:
-            # First deployment or output-layout change: cloud/specular previous
-            # and current intentionally begin as the same paired observation.
-            current_utc = _utc_now_string()
-            metadata["cloudPreviousUtc"] = current_utc
-            metadata["cloudCurrentUtc"] = current_utc
-            metadata["specularPreviousUtc"] = current_utc
-            metadata["specularCurrentUtc"] = current_utc
-        elif cloud_result["cloudImageChanged"]:
-            # Normal transition: old cloud/specular current become previous and
-            # both new current files share the same observation timestamp.
-            current_utc = _utc_now_string()
-            previous_utc = previous_cloud_current_utc or current_utc
-            metadata["cloudPreviousUtc"] = previous_utc
-            metadata["cloudCurrentUtc"] = current_utc
-            metadata["specularPreviousUtc"] = (
-                previous_specular_current_utc or previous_utc
-            )
-            metadata["specularCurrentUtc"] = current_utc
-        else:
-            # Upstream pair did not change. Keep both interpolation endpoints
-            # and timestamps stable instead of inventing a new observation.
-            if previous_cloud_previous_utc is not None:
-                metadata["cloudPreviousUtc"] = previous_cloud_previous_utc
-            if previous_cloud_current_utc is not None:
-                metadata["cloudCurrentUtc"] = previous_cloud_current_utc
-            if previous_specular_previous_utc is not None:
-                metadata["specularPreviousUtc"] = previous_specular_previous_utc
-            if previous_specular_current_utc is not None:
-                metadata["specularCurrentUtc"] = previous_specular_current_utc
-    except Exception as exc:  # noqa: BLE001 - retain prior published texture when possible
+    except Exception as exc:
         cloud_error = exc
         print(
-            "Cloud/specular update failed; keeping published fallback if available: "
-            f"{exc}"
+            "GMGSI cloud/specular update failed; "
+            f"keeping published fallback if available: {exc}"
         )
 
     try:
         metadata.update(update_wind_textures(OUTPUT_DIR, WORK_DIR))
         metadata["windUpdatedUtc"] = _utc_now_string()
-    except Exception as exc:  # noqa: BLE001 - retain prior published texture when possible
+    except Exception as exc:
         wind_error = exc
         print(f"Wind update failed; keeping published fallback if available: {exc}")
 
