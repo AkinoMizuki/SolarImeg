@@ -25,21 +25,23 @@ DEFAULT_LAT_MIN = -72.7368
 DEFAULT_LON_MIN = -179.9284
 DEFAULT_LON_MAX = 179.9996
 
-# Keep the cloud appearance from commit 869e7c7f90c9b109e77ac86ab941e732986d39d9.
-# Only no-data repair is added below; valid GMGSI pixels are never re-calibrated.
-# The test output was still brighter/more opaque than the production texture,
-# so alpha and RGB gain are reduced independently without changing the curve.
-CLOUD_ALPHA_START = 64.0
-CLOUD_ALPHA_FULL = 215.0
-CLOUD_ALPHA_GAMMA = 0.38
-CLOUD_ALPHA_GAIN = 1.10
+# Keep the 869e7c7-era look, but reduce the broad white plateau.
+# The previous revision lowered overall RGB gain only; that made the texture
+# darker without restoring tonal separation. This revision lowers alpha gain
+# and uses a lower RGB floor with a wider useful contrast range.
+CLOUD_ALPHA_START = 72.0
+CLOUD_ALPHA_FULL = 220.0
+CLOUD_ALPHA_GAMMA = 0.50
+CLOUD_ALPHA_GAIN = 0.96
 CLOUD_ALPHA_DILATE_SIZE = 3
 CLOUD_ALPHA_BLUR_RADIUS = 0.65
-CLOUD_RGB_GAIN = 0.91
 
-# Conservative no-data repair. Horizontal gaps are linearly interpolated first;
-# any remaining holes are filled from surrounding valid data with normalized
-# Gaussian interpolation. Valid source pixels are never overwritten.
+CLOUD_RGB_BASE = 118.0
+CLOUD_RGB_ALPHA_GAIN = 92.0
+CLOUD_RGB_DETAIL_GAIN = 34.0
+CLOUD_RGB_GAIN = 0.96
+
+# Conservative no-data repair. Only pixels marked invalid by GMGSI are filled.
 GAP_BUFFER = 3
 MAX_ROW_GAP_FRACTION = 0.35
 GAUSSIAN_FILL_RADII = (2.0, 4.0, 8.0, 16.0, 32.0, 64.0)
@@ -67,11 +69,11 @@ def _list_keys(prefix: str, timeout: int = 30) -> list[str]:
     )
     response.raise_for_status()
     root = ET.fromstring(response.content)
-    keys: list[str] = []
-    for element in root.iter():
-        if element.tag.endswith("Key") and element.text:
-            keys.append(element.text)
-    return keys
+    return [
+        element.text
+        for element in root.iter()
+        if element.tag.endswith("Key") and element.text
+    ]
 
 
 def _find_latest_two_keys(lookback_hours: int = 36) -> list[tuple[datetime, str]]:
@@ -96,10 +98,8 @@ def _find_latest_two_keys(lookback_hours: int = 36) -> list[tuple[datetime, str]
             if key.rsplit("/", 1)[-1].startswith(S3_FILENAME_PREFIX)
             and key.lower().endswith(".nc")
         ]
-        if not candidates:
-            continue
-
-        found.append((slot, sorted(candidates)[-1]))
+        if candidates:
+            found.append((slot, sorted(candidates)[-1]))
         if len(found) >= 2:
             break
 
@@ -107,7 +107,6 @@ def _find_latest_two_keys(lookback_hours: int = 36) -> list[tuple[datetime, str]
         raise RuntimeError(
             f"Could not find two GMGSI LW observations in the last {lookback_hours} hours"
         )
-
     return sorted(found, key=lambda item: item[0])
 
 
@@ -139,10 +138,11 @@ def _read_gmgsi_plane(
     path: Path,
 ) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float, float]]:
     with Dataset(path, "r") as ds:
-        raw_data = ds.variables["data"][:]
-        if np.ma.isMaskedArray(raw_data):
-            raw_data = np.ma.filled(raw_data, np.nan)
-        data = np.squeeze(np.asarray(raw_data, dtype=np.float32))
+        raw = ds.variables["data"][:]
+        if np.ma.isMaskedArray(raw):
+            raw = np.ma.filled(raw, np.nan)
+
+        data = np.squeeze(np.asarray(raw, dtype=np.float32))
         if data.ndim != 2:
             raise RuntimeError(f"Unexpected GMGSI data shape: {data.shape}")
 
@@ -154,13 +154,14 @@ def _read_gmgsi_plane(
 
         valid &= data > 0.0
         data = np.where(valid, np.clip(data, 0.0, 255.0), 0.0)
+        bounds = (
+            float(getattr(ds, "geospatial_lat_max", DEFAULT_LAT_MAX)),
+            float(getattr(ds, "geospatial_lat_min", DEFAULT_LAT_MIN)),
+            float(getattr(ds, "geospatial_lon_min", DEFAULT_LON_MIN)),
+            float(getattr(ds, "geospatial_lon_max", DEFAULT_LON_MAX)),
+        )
 
-        lat_max = float(getattr(ds, "geospatial_lat_max", DEFAULT_LAT_MAX))
-        lat_min = float(getattr(ds, "geospatial_lat_min", DEFAULT_LAT_MIN))
-        lon_min = float(getattr(ds, "geospatial_lon_min", DEFAULT_LON_MIN))
-        lon_max = float(getattr(ds, "geospatial_lon_max", DEFAULT_LON_MAX))
-
-    return data, valid.astype(np.float32), (lat_max, lat_min, lon_min, lon_max)
+    return data, valid.astype(np.float32), bounds
 
 
 def _mercator_y(latitude_deg: np.ndarray | float) -> np.ndarray:
@@ -170,38 +171,24 @@ def _mercator_y(latitude_deg: np.ndarray | float) -> np.ndarray:
 
 
 def _mirror_polar_caps(field: np.ndarray, valid_rows: np.ndarray) -> np.ndarray:
-    """Mirror the immediately adjacent valid latitude band into both polar caps."""
     filled = np.array(field, copy=True)
-    valid_indices = np.flatnonzero(valid_rows)
-    if valid_indices.size == 0:
+    rows = np.flatnonzero(valid_rows)
+    if rows.size == 0:
         return filled
 
-    first_valid = int(valid_indices[0])
-    last_valid = int(valid_indices[-1])
+    first = int(rows[0])
+    last = int(rows[-1])
     height = filled.shape[0]
 
-    north_count = first_valid
-    if north_count > 0:
-        north_source = np.arange(
-            2 * first_valid - 1,
-            first_valid - 1,
-            -1,
-            dtype=np.int32,
-        )
-        north_source = np.clip(north_source, first_valid, last_valid)
-        filled[:first_valid, :] = filled[north_source, :]
+    if first > 0:
+        src = np.arange(2 * first - 1, first - 1, -1, dtype=np.int32)
+        filled[:first] = filled[np.clip(src, first, last)]
 
-    south_start = last_valid + 1
+    south_start = last + 1
     south_count = height - south_start
     if south_count > 0:
-        south_source = np.arange(
-            last_valid,
-            last_valid - south_count,
-            -1,
-            dtype=np.int32,
-        )
-        south_source = np.clip(south_source, first_valid, last_valid)
-        filled[south_start:, :] = filled[south_source, :]
+        src = np.arange(last, last - south_count, -1, dtype=np.int32)
+        filled[south_start:] = filled[np.clip(src, first, last)]
 
     return filled
 
@@ -216,24 +203,22 @@ def _vertical_resample(
     target_lat = np.linspace(90.0, -90.0, height, dtype=np.float64)
     valid_rows = (target_lat <= lat_max) & (target_lat >= lat_min)
 
-    src_y_top = float(_mercator_y(lat_max))
-    src_y_bottom = float(_mercator_y(lat_min))
-    target_y = _mercator_y(np.clip(target_lat, lat_min, lat_max))
-    row = (src_y_top - target_y) / (src_y_top - src_y_bottom) * (src_h - 1)
+    top = float(_mercator_y(lat_max))
+    bottom = float(_mercator_y(lat_min))
+    target = _mercator_y(np.clip(target_lat, lat_min, lat_max))
+    row = (top - target) / (top - bottom) * (src_h - 1)
     row = np.clip(row, 0.0, src_h - 1.0)
 
     row0 = np.floor(row).astype(np.int32)
     row1 = np.minimum(row0 + 1, src_h - 1)
     frac = (row - row0).astype(np.float32)[:, None]
-    result = source[row0] * (1.0 - frac) + source[row1] * frac
-    return result, valid_rows
+    return source[row0] * (1.0 - frac) + source[row1] * frac, valid_rows
 
 
 def _fill_row_gaps(
     field: np.ndarray,
     valid: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Fill only bounded horizontal no-data runs; leave every valid pixel untouched."""
     out = np.array(field, copy=True)
     work_valid = valid.copy()
     repaired = np.zeros_like(valid, dtype=bool)
@@ -263,8 +248,9 @@ def _fill_row_gaps(
 
             xs = np.arange(start, end)
             t = (xs - left) / float(right - left)
-            values = out[y, left] * (1.0 - t) + out[y, right] * t
-            out[y, xs] = values.astype(np.float32)
+            out[y, xs] = (
+                out[y, left] * (1.0 - t) + out[y, right] * t
+            ).astype(np.float32)
             work_valid[y, xs] = True
             repaired[y, xs] = True
 
@@ -281,7 +267,6 @@ def _fill_remaining_gaps(
     field: np.ndarray,
     valid: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Fill remaining no-data only; valid GMGSI values are never changed."""
     out = np.array(field, copy=True)
     work_valid = valid.copy()
     repaired = np.zeros_like(valid, dtype=bool)
@@ -314,14 +299,13 @@ def _to_equirectangular(
     height: int = OUTPUT_HEIGHT,
 ) -> np.ndarray:
     lat_max, lat_min, lon_min, lon_max = bounds
-    src_h, _ = source.shape
+    src_h = source.shape[0]
 
     src_img = Image.fromarray(np.clip(source, 0, 255).astype(np.uint8), mode="L")
     horizontal = np.asarray(
         src_img.resize((width, src_h), Image.Resampling.BILINEAR),
         dtype=np.float32,
     )
-
     valid_img = Image.fromarray(
         np.clip(source_valid * 255.0, 0, 255).astype(np.uint8), mode="L"
     )
@@ -332,8 +316,6 @@ def _to_equirectangular(
 
     result, valid_rows = _vertical_resample(horizontal, lat_max, lat_min, height)
     coverage, _ = _vertical_resample(horizontal_valid, lat_max, lat_min, height)
-
-    # Preserve the exact polar appearance used in 869e7c7...
     result = _mirror_polar_caps(result, valid_rows)
     coverage = _mirror_polar_caps(coverage, valid_rows)
     valid = coverage > 0.5
@@ -355,9 +337,6 @@ def _to_equirectangular(
         f"before={missing_before}, repaired={int(np.count_nonzero(repaired))}, "
         f"remaining={remaining}"
     )
-
-    # Do not blur, histogram-match, or blend the repaired output globally.
-    # This intentionally keeps the 869e7c7 cloud density/contrast unchanged.
     return result
 
 
@@ -367,7 +346,6 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
 
 
 def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Cloud rendering based on commit 869e7c7 with reduced output gain."""
     valid = lw > 0.0
 
     alpha = _smoothstep(CLOUD_ALPHA_START, CLOUD_ALPHA_FULL, lw)
@@ -379,9 +357,7 @@ def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         np.clip(alpha * 255.0, 0, 255).astype(np.uint8), mode="L"
     )
     alpha_img = alpha_img.filter(ImageFilter.MaxFilter(size=CLOUD_ALPHA_DILATE_SIZE))
-    alpha_img = alpha_img.filter(
-        ImageFilter.GaussianBlur(radius=CLOUD_ALPHA_BLUR_RADIUS)
-    )
+    alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(radius=CLOUD_ALPHA_BLUR_RADIUS))
     alpha = np.asarray(alpha_img, dtype=np.float32) / 255.0
     alpha[~valid] = 0.0
 
@@ -391,12 +367,14 @@ def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         1.0,
     )
 
+    # Lower the RGB floor rather than simply darkening the old near-white curve.
+    # This restores visible midtone separation while keeping thick cloud bright.
     brightness = (
-        175.0
-        + 55.0 * np.power(alpha, 0.42)
-        + 30.0 * np.sqrt(detail)
+        CLOUD_RGB_BASE
+        + CLOUD_RGB_ALPHA_GAIN * np.power(alpha, 0.82)
+        + CLOUD_RGB_DETAIL_GAIN * np.power(detail, 0.95)
     )
-    brightness = np.clip(brightness * CLOUD_RGB_GAIN, 0.0, 255.0)
+    brightness = np.clip(brightness * CLOUD_RGB_GAIN, 0.0, 245.0)
     rgb = np.repeat(brightness[:, :, None], 3, axis=2)
     rgb[~valid] = 255.0
 
@@ -411,19 +389,16 @@ def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _print_alpha_stats(label: str, alpha: np.ndarray) -> None:
-    alpha_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
-    total = float(alpha_u8.size)
+    u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+    total = float(u8.size)
 
     def pct_over(value: int) -> float:
-        return float(np.count_nonzero(alpha_u8 > value)) / total * 100.0
+        return float(np.count_nonzero(u8 > value)) / total * 100.0
 
     print(
-        f"GMGSI test {label} alpha: "
-        f"mean={float(alpha_u8.mean()):.2f}/255, "
-        f">0={pct_over(0):.2f}%, "
-        f">64={pct_over(64):.2f}%, "
-        f">128={pct_over(128):.2f}%, "
-        f">192={pct_over(192):.2f}%"
+        f"GMGSI test {label} alpha: mean={float(u8.mean()):.2f}/255, "
+        f">0={pct_over(0):.2f}%, >64={pct_over(64):.2f}%, "
+        f">128={pct_over(128):.2f}%, >192={pct_over(192):.2f}%"
     )
 
 
@@ -472,10 +447,9 @@ def _estimate_ocean_specular_mask(output_dir: Path) -> np.ndarray:
     base = np.where(denominator > 0.0, numerator / denominator, fallback)
     base = np.maximum(base, fallback)
     base = np.clip(base, 0.0, 1.0)
-
-    base_img = Image.fromarray((base * 255.0).astype(np.uint8), mode="L")
-    base_img = base_img.filter(ImageFilter.GaussianBlur(radius=0.6))
-    return np.asarray(base_img, dtype=np.float32) / 255.0
+    image = Image.fromarray((base * 255.0).astype(np.uint8), mode="L")
+    image = image.filter(ImageFilter.GaussianBlur(radius=0.6))
+    return np.asarray(image, dtype=np.float32) / 255.0
 
 
 def _specular_from_cloud(base_ocean: np.ndarray, cloud_alpha: np.ndarray) -> np.ndarray:
