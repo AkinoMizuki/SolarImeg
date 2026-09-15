@@ -27,12 +27,15 @@ DEFAULT_LON_MAX = 179.9996
 
 # Keep the cloud appearance from commit 869e7c7f90c9b109e77ac86ab941e732986d39d9.
 # Only no-data repair is added below; valid GMGSI pixels are never re-calibrated.
+# The test output was still brighter/more opaque than the production texture,
+# so alpha and RGB gain are reduced independently without changing the curve.
 CLOUD_ALPHA_START = 64.0
 CLOUD_ALPHA_FULL = 215.0
 CLOUD_ALPHA_GAMMA = 0.38
-CLOUD_ALPHA_GAIN = 1.18
+CLOUD_ALPHA_GAIN = 1.10
 CLOUD_ALPHA_DILATE_SIZE = 3
 CLOUD_ALPHA_BLUR_RADIUS = 0.65
+CLOUD_RGB_GAIN = 0.91
 
 # Conservative no-data repair. Horizontal gaps are linearly interpolated first;
 # any remaining holes are filled from surrounding valid data with normalized
@@ -364,7 +367,7 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
 
 
 def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Cloud rendering kept identical to commit 869e7c7..."""
+    """Cloud rendering based on commit 869e7c7 with reduced output gain."""
     valid = lw > 0.0
 
     alpha = _smoothstep(CLOUD_ALPHA_START, CLOUD_ALPHA_FULL, lw)
@@ -393,7 +396,7 @@ def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         + 55.0 * np.power(alpha, 0.42)
         + 30.0 * np.sqrt(detail)
     )
-    brightness = np.clip(brightness, 0.0, 255.0)
+    brightness = np.clip(brightness * CLOUD_RGB_GAIN, 0.0, 255.0)
     rgb = np.repeat(brightness[:, :, None], 3, axis=2)
     rgb[~valid] = 255.0
 
