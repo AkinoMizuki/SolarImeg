@@ -168,6 +168,70 @@ EUMETSAT 必須表記:
 
 Unity / VRChat の地球表示で利用するため、雲・海面スペキュラ・風向風速を定期更新して GitHub Pages から配信します。
 
+## Earth Weather のデータ元・クレジット
+
+Earth Weather は Cloud / Specular / Wind をまとめて 1 つの地球気象システムとして扱います。以下の外部データ・サービスを組み合わせて使用しています。
+
+| 用途 | データ元 | 権利形態 / ライセンス | クレジット要否 |
+| --- | --- | --- | --- |
+| Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 |
+| Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** |
+| Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要、SolarImeg では推奨 |
+
+### Cloud / Specular: live-cloud-maps / EUMETSAT
+
+Earth Weather の Cloud / Specular は Matt Eason 氏の `live-cloud-maps` を利用しています。
+
+- Project: https://github.com/matteason/live-cloud-maps
+- Cloud source: https://clouds.matteason.co.uk/images/2048x1024/clouds-alpha.png
+- Specular source: https://clouds.matteason.co.uk/images/2048x1024/specular.jpg
+- EUMETSAT Data Policy / Licensing: https://www.eumetsat.int/eumetsat-data-licensing
+
+`live-cloud-maps` のコードと同プロジェクトが公開する画像は **CC0 1.0 Universal** とされています。CC0 自体はクレジット表示を要求しないため、Matt Eason 氏への attribution は **必須ではありません**。SolarImeg ではデータ生成サービスの提供元としてクレジットします。
+
+一方、雲データの元データには **EUMETSAT データ**が含まれるため、EUMETSAT の条件は別途適用されます。Cloud / Specular を利用・再配布する場合は次の attribution を表示してください。
+
+> Contains modified EUMETSAT data
+
+Cloud / Specular の表示用クレジット例:
+
+> Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data.
+
+### Wind: NOAA / NWS / NCEP GFS via NOMADS
+
+風向・風速は NOAA / National Weather Service / National Centers for Environmental Prediction の Global Forecast System (GFS) を利用しています。
+
+- NOMADS: https://nomads.ncep.noaa.gov/
+- GFS products: https://www.nco.ncep.noaa.gov/pmb/products/gfs/
+- SolarImeg が使用する GRIB filter: https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl
+- Grid: GFS 0.25 degree
+- Parameters: `UGRD`, `VGRD`
+- Levels: 10 m above ground / 850 hPa / 700 hPa
+
+NOAA / NWS の米国政府情報は、個別に別の表示があるものを除き、**Public Domain（パブリックドメイン）**として扱われます。MIT や Creative Commons ライセンスではありません。
+
+通常の著作権ライセンス上の attribution 義務としては扱われませんが、出典とデータ来歴を明確にするため、SolarImeg では **クレジット表示を推奨し、README では表示します**。
+
+Wind の表示用クレジット例:
+
+> Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+
+主な条件:
+
+- NOAA / NWS の情報を自分自身の著作物であると主張しない。
+- NOAA / NWS が SolarImeg や製品・サービスを支持・提携しているように見せない。
+- 改変した情報を NOAA / NWS の公式政府資料であるかのように表示しない。
+- NWS の名称・ロゴ等は商標・識別標章として別途保護される。
+- 米国政府資料を主体とする著作物では、17 U.S.C. §403 に基づく表示が必要になる場合がある。
+
+SolarImeg は取得した U/V 風成分を RGBA データテクスチャへ変換しており、NOAA / NCEP の公式画像をそのまま転載しているものではありません。
+
+### Earth Weather の表示用クレジット例
+
+Earth Weather をシステムとしてまとめて表示する場合は、例えば次のように表記できます。
+
+> Earth Weather — Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+
 ## 配信ファイル
 
 ### Cloud / Specular
@@ -207,38 +271,6 @@ cloud_previous.png    <-> specular_previous.jpg
 cloud_current.png     <-> specular_current.jpg
 ```
 
-### Cloud / Specular のデータ元・クレジット
-
-- データ生成サービス: `live-cloud-maps` / Matt Eason
-- `live-cloud-maps` の権利形態: **CC0 1.0 Universal**
-- `live-cloud-maps` 作者クレジット: **必須ではない / 任意**
-- 元の雲データ: **EUMETSAT**
-- EUMETSAT attribution: **必須**
-
-Project:
-
-https://github.com/matteason/live-cloud-maps
-
-Cloud source:
-
-https://clouds.matteason.co.uk/images/2048x1024/clouds-alpha.png
-
-Specular source:
-
-https://clouds.matteason.co.uk/images/2048x1024/specular.jpg
-
-EUMETSAT Data Policy / Licensing:
-
-https://www.eumetsat.int/eumetsat-data-licensing
-
-必須表記:
-
-> Contains modified EUMETSAT data
-
-表示用クレジット例:
-
-> Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data.
-
 ## Wind
 
 GFS の UGRD / VGRD から、VRChat / Unity の Shader で直接利用できる RGBA データテクスチャを生成します。
@@ -250,41 +282,6 @@ GFS の UGRD / VGRD から、VRChat / Unity の Shader で直接利用できる 
 各テクスチャは 1440 x 720 の正距円筒図法です。
 経度は左端が -180°、中央が 0°（Greenwich）、右端が +180°です。
 画像上では上端が北極、下端が南極です。
-
-### Wind のデータ元・クレジット: NOAA / NWS / NCEP GFS via NOMADS
-
-風向・風速は NOAA / National Weather Service / National Centers for Environmental Prediction の Global Forecast System (GFS) を利用しています。
-
-- NOMADS: https://nomads.ncep.noaa.gov/
-- GFS products: https://www.nco.ncep.noaa.gov/pmb/products/gfs/
-- SolarImeg が使用する GRIB filter: https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl
-- Grid: GFS 0.25 degree
-- Parameters: `UGRD`, `VGRD`
-- Levels: 10 m above ground / 850 hPa / 700 hPa
-
-### 権利形態 / ライセンス
-
-NOAA / NWS の米国政府情報は、個別に別の表示があるものを除き、**Public Domain（パブリックドメイン）**として扱われます。
-
-これは MIT や Creative Commons ライセンスではなく、米国政府著作物として著作権保護の対象外となる情報を利用する形態です。
-
-### クレジット要否
-
-通常の著作権ライセンス上の attribution 義務としては扱われませんが、出典の明確化とデータ来歴のため、SolarImeg では **クレジット表示を推奨し、README では表示します**。
-
-表示用クレジット例:
-
-> Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
-
-### 主な条件
-
-- NOAA / NWS の情報を自分自身の著作物であると主張しない。
-- NOAA / NWS が SolarImeg や製品・サービスを支持・提携しているように見せない。
-- 改変した情報を NOAA / NWS の公式政府資料であるかのように表示しない。
-- NWS の名称・ロゴ等は商標・識別標章として別途保護される。
-- 米国政府資料を主体とする著作物では、17 U.S.C. §403 に基づく表示が必要になる場合がある。
-
-SolarImeg は取得した U/V 風成分を RGBA データテクスチャへ変換しており、NOAA / NCEP の公式画像をそのまま転載しているものではありません。
 
 ### Wind RGBA データ形式
 
@@ -482,7 +479,7 @@ Wind Texture を sRGB のまま使用する必要がある場合は、Material �
 ```text
 sRGB (Color Texture) = OFF
 Compression          = None 推奨
-Filter Mode           = Bilinear
+Filter Mode          = Bilinear
 ```
 
 sRGB として読み込む場合は `Specular Texture Is sRGB` を ON にしてください。
