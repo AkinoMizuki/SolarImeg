@@ -20,6 +20,22 @@ Earth Weather は毎時 20 分に更新チェックします。
 
 外部データの条件は、以下の各セクションにある「権利形態 / ライセンス」「クレジット要否」「主な条件」を参照してください。
 
+### 全体クレジット表
+
+| 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
+| --- | --- | --- | --- | --- |
+| SOHO 太陽画像 | SOHO / ESA & NASA | SOHO / ESA / NASA の画像利用条件 | **要表示扱い** | `Solar imagery: SOHO (ESA & NASA)` |
+| 名古屋市科学館 太陽像 | 名古屋市科学館 | CC BY 2.1 JP | **必須** | `Solar imagery: 名古屋市科学館` |
+| 3時間更新 Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
+| 3時間更新 Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
+| Earth Weather Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
+| Earth Weather Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
+| Earth Weather Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
+
+Earth Weather をまとめて表示する場合の例:
+
+> Earth Weather — Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+
 ---
 
 # SolarImeg(SOHO)
@@ -41,6 +57,12 @@ SOHO のリアルタイム太陽画像を次の公式配信元から取得して
 
 SOHO は ESA と NASA の国際協力プロジェクトです。
 
+### クレジット表
+
+| 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
+| --- | --- | --- | --- | --- |
+| SOHO リアルタイム太陽画像 | SOHO / ESA & NASA | SOHO / ESA / NASA の画像利用条件 | **要表示扱い** | `Solar imagery: SOHO (ESA & NASA)` |
+
 ### 権利形態 / ライセンス
 
 SOHO のリアルタイム画像は MIT や CC0 といったソフトウェア / オープンデータライセンスではなく、**SOHO / ESA / NASA の画像利用条件**に従います。
@@ -60,7 +82,7 @@ SOHO 公式はクレジットを「requested」としており、次の表記を
 
 > SOHO (ESA & NASA)
 
-SolarImeg では分かりやすさのため、表示用クレジットを次とします。
+表示用クレジット例:
 
 > Solar imagery: SOHO (ESA & NASA)
 
@@ -89,6 +111,12 @@ https://akinomizuki.github.io/SolarImeg/now_ha.jpg
 - CC BY 2.1 JP: https://creativecommons.org/licenses/by/2.1/jp/
 
 太陽観測ページには CC BY の表示があり、名古屋市科学館の天文情報オープンデータ方針では、再利用可能なデータ等を CC BY として公開し、表示名を「名古屋市科学館」とするよう案内しています。
+
+### クレジット表
+
+| 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
+| --- | --- | --- | --- | --- |
+| `now_wh.jpg` / `now_ha.jpg` | 名古屋市科学館 | CC BY 2.1 JP | **必須** | `Solar imagery: 名古屋市科学館` |
 
 ### 権利形態 / ライセンス
 
@@ -134,6 +162,13 @@ https://akinomizuki.github.io/SolarImeg/specular.jpg
 - Specular source: https://clouds.matteason.co.uk/images/8192x4096/specular.jpg
 - EUMETSAT Data Licensing: https://www.eumetsat.int/eumetsat-data-licensing
 
+### クレジット表
+
+| 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
+| --- | --- | --- | --- | --- |
+| Cloud / Specular 配信画像 | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
+| 元の雲データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
+
 ### 権利形態 / ライセンス
 
 `live-cloud-maps` のコードと同プロジェクトが公開する画像は **CC0 1.0 Universal** とされています。
@@ -144,7 +179,7 @@ CC0 は著作権等を可能な限り放棄してパブリックドメイン相�
 
 ### クレジット要否
 
-- `live-cloud-maps` / Matt Eason 氏: **CC0 上は必須ではない**。SolarImeg ではデータ生成サービスの提供元として任意でクレジットする。
+- `live-cloud-maps` / Matt Eason 氏: **CC0 上は必須ではない**。データ生成サービスの提供元として任意でクレジットする。
 - EUMETSAT: **必須**。
 
 EUMETSAT 必須表記:
@@ -172,11 +207,13 @@ Unity / VRChat の地球表示で利用するため、雲・海面スペキュ�
 
 Earth Weather は Cloud / Specular / Wind をまとめて 1 つの地球気象システムとして扱います。以下の外部データ・サービスを組み合わせて使用しています。
 
-| 用途 | データ元 | 権利形態 / ライセンス | クレジット要否 |
-| --- | --- | --- | --- |
-| Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 |
-| Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** |
-| Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要、SolarImeg では推奨 |
+### クレジット表
+
+| 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
+| --- | --- | --- | --- | --- |
+| Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
+| Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
+| Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
 
 ### Cloud / Specular: live-cloud-maps / EUMETSAT
 
@@ -187,7 +224,7 @@ Earth Weather の Cloud / Specular は Matt Eason 氏の `live-cloud-maps` を�
 - Specular source: https://clouds.matteason.co.uk/images/2048x1024/specular.jpg
 - EUMETSAT Data Policy / Licensing: https://www.eumetsat.int/eumetsat-data-licensing
 
-`live-cloud-maps` のコードと同プロジェクトが公開する画像は **CC0 1.0 Universal** とされています。CC0 自体はクレジット表示を要求しないため、Matt Eason 氏への attribution は **必須ではありません**。SolarImeg ではデータ生成サービスの提供元としてクレジットします。
+`live-cloud-maps` のコードと同プロジェクトが公開する画像は **CC0 1.0 Universal** とされています。CC0 自体はクレジット表示を要求しないため、Matt Eason 氏への attribution は **必須ではありません**。Earth Weather ではデータ生成サービスの提供元としてクレジットします。
 
 一方、雲データの元データには **EUMETSAT データ**が含まれるため、EUMETSAT の条件は別途適用されます。Cloud / Specular を利用・再配布する場合は次の attribution を表示してください。
 
@@ -203,14 +240,14 @@ Cloud / Specular の表示用クレジット例:
 
 - NOMADS: https://nomads.ncep.noaa.gov/
 - GFS products: https://www.nco.ncep.noaa.gov/pmb/products/gfs/
-- SolarImeg が使用する GRIB filter: https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl
+- Earth Weather が使用する GRIB filter: https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl
 - Grid: GFS 0.25 degree
 - Parameters: `UGRD`, `VGRD`
 - Levels: 10 m above ground / 850 hPa / 700 hPa
 
 NOAA / NWS の米国政府情報は、個別に別の表示があるものを除き、**Public Domain（パブリックドメイン）**として扱われます。MIT や Creative Commons ライセンスではありません。
 
-通常の著作権ライセンス上の attribution 義務としては扱われませんが、出典とデータ来歴を明確にするため、SolarImeg では **クレジット表示を推奨し、README では表示します**。
+通常の著作権ライセンス上の attribution 義務としては扱われませんが、出典とデータ来歴を明確にするため、**Earth Weather ではクレジット表示を推奨し、この README では表示します**。
 
 Wind の表示用クレジット例:
 
@@ -219,12 +256,12 @@ Wind の表示用クレジット例:
 主な条件:
 
 - NOAA / NWS の情報を自分自身の著作物であると主張しない。
-- NOAA / NWS が SolarImeg や製品・サービスを支持・提携しているように見せない。
+- NOAA / NWS が Earth Weather や製品・サービスを支持・提携しているように見せない。
 - 改変した情報を NOAA / NWS の公式政府資料であるかのように表示しない。
 - NWS の名称・ロゴ等は商標・識別標章として別途保護される。
 - 米国政府資料を主体とする著作物では、17 U.S.C. §403 に基づく表示が必要になる場合がある。
 
-SolarImeg は取得した U/V 風成分を RGBA データテクスチャへ変換しており、NOAA / NCEP の公式画像をそのまま転載しているものではありません。
+Earth Weather は取得した U/V 風成分を RGBA データテクスチャへ変換しており、NOAA / NCEP の公式画像をそのまま転載しているものではありません。
 
 ### Earth Weather の表示用クレジット例
 
