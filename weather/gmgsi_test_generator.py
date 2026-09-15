@@ -25,34 +25,51 @@ DEFAULT_LAT_MIN = -72.7368
 DEFAULT_LON_MIN = -179.9284
 DEFAULT_LON_MAX = 179.9996
 
-# live-cloud-maps uses a soft greyscale cloud field for alpha, then derives the
-# RGB shading from a blurred copy. Keep the GMGSI test pipeline equally soft:
-# no dilation/max-filter and no hard per-pixel histogram remap.
+# Keep the same IR response as live-cloud-maps. We only have GMGSI longwave IR
+# here, so dust/visible detail is not fabricated. The production cloud texture
+# is used only for statistical calibration and truly unresolved gaps.
 IR_LOW = 72.0
 IR_HIGH = 178.0
 IR_GAMMA = 1.46
 OUTPUT_GAMMA = 2.0
 IR_WEIGHT = 0.77
 
-ALPHA_BLUR_RADIUS = 1.15
+# The previous test matched alpha reasonably well but RGB became bimodal
+# (large white areas plus black defects). Keep alpha soft, then separately
+# calibrate RGB luminance against the production live-cloud-maps texture.
+ALPHA_BLUR_RADIUS = 1.10
 RGB_BLUR_RADIUS = 3.0
-RGB_BRIGHTNESS = 1.28
+RGB_MATCH_MIX = 0.90
 
-# Exactly 1/8 of the equirectangular height is mirrored at each pole, matching
-# live-cloud-maps' polar treatment.
+# live-cloud-maps fills one eighth of the output at each pole by mirroring.
 POLAR_MIRROR_FRACTION = 1.0 / 8.0
-POLAR_SEAM_BLEND_ROWS = 24
+POLAR_SEAM_BLEND_ROWS = 18
+POLAR_REFERENCE_BLEND = 0.035
 
-# Fill GMGSI geometric gaps row-by-row with a smooth linear gradient, similar
-# to live-cloud-maps' antimeridian gap repair. Remaining isolated pixels get a
-# conservative vertical pass.
+# First repair bounded horizontal gaps the same way live-cloud-maps repairs its
+# antimeridian gap. Larger/irregular GMGSI holes are then reconstructed with a
+# normalized Gaussian fill instead of neighbour-growth, avoiding triangular
+# and faceted artifacts.
 GAP_BUFFER = 3
-MAX_ROW_GAP_FRACTION = 0.35
-VERTICAL_FILL_PASSES = 8
+MAX_ROW_GAP_FRACTION = 0.40
+GAUSSIAN_FILL_RADII = (2.0, 4.0, 8.0, 16.0, 32.0, 64.0)
+GAUSSIAN_FILL_MIN_WEIGHT = 3
+REPAIR_BLEND_RADIUS = 2.5
+UNRESOLVED_REFERENCE_BLUR = 2.5
 
-# Calibrate overall opacity to the production cloud texture using robust
-# percentiles rather than a full histogram lookup (which caused banding).
-CALIBRATION_PERCENTILES = (5.0, 25.0, 50.0, 75.0, 95.0)
+# Robust distribution matching. Alpha and RGB are matched separately; using a
+# full histogram lookup caused banding, while too few points caused whiteout.
+CALIBRATION_PERCENTILES = (
+    1.0,
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    75.0,
+    90.0,
+    95.0,
+    99.0,
+)
 
 PRODUCTION_WEATHER_BASE = "https://akinomizuki.github.io/SolarImeg/weather"
 TEST_FILENAMES = (
@@ -201,140 +218,125 @@ def _vertical_resample(
 
 
 def _mirror_poles(field: np.ndarray, inside_rows: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Mirror one eighth of the image at both poles, matching live-cloud-maps."""
     out = np.array(field, copy=True)
-    mask = np.zeros_like(out, dtype=np.float32)
-    valid_rows = np.flatnonzero(inside_rows)
-    if valid_rows.size == 0:
-        return out, mask
+    mirror_mask = np.zeros_like(out, dtype=bool)
+    rows = np.flatnonzero(inside_rows)
+    if rows.size == 0:
+        return out, mirror_mask
 
-    first = int(valid_rows[0])
-    last = int(valid_rows[-1])
+    first = int(rows[0])
+    last = int(rows[-1])
     mirror_rows = max(1, int(round(out.shape[0] * POLAR_MIRROR_FRACTION)))
 
     north_rows = min(first, mirror_rows)
     if north_rows > 0:
         src = np.arange(first + north_rows - 1, first - 1, -1, dtype=np.int32)
+        src = np.clip(src, first, last)
         out[first - north_rows:first] = out[src]
-        mask[first - north_rows:first] = 1.0
+        mirror_mask[first - north_rows:first] = True
 
     south_start = last + 1
     south_rows = min(out.shape[0] - south_start, mirror_rows)
     if south_rows > 0:
         src = np.arange(last, last - south_rows, -1, dtype=np.int32)
+        src = np.clip(src, first, last)
         out[south_start:south_start + south_rows] = out[src]
-        mask[south_start:south_start + south_rows] = 1.0
+        mirror_mask[south_start:south_start + south_rows] = True
 
     if first - north_rows > 0:
-        remainder = first - north_rows
-        src = np.arange(first + remainder - 1, first - 1, -1, dtype=np.int32)
-        src = np.clip(src, first, last)
-        out[:remainder] = out[src]
-        mask[:remainder] = 1.0
+        count = first - north_rows
+        src = np.arange(first + count - 1, first - 1, -1, dtype=np.int32)
+        out[:count] = out[np.clip(src, first, last)]
+        mirror_mask[:count] = True
 
     tail = south_start + south_rows
     if tail < out.shape[0]:
-        remainder = out.shape[0] - tail
-        src = np.arange(last - south_rows, last - south_rows - remainder, -1, dtype=np.int32)
-        src = np.clip(src, first, last)
-        out[tail:] = out[src]
-        mask[tail:] = 1.0
+        count = out.shape[0] - tail
+        src = np.arange(last - south_rows, last - south_rows - count, -1, dtype=np.int32)
+        out[tail:] = out[np.clip(src, first, last)]
+        mirror_mask[tail:] = True
 
-    return out, mask
+    return out, mirror_mask
 
 
 def _fill_row_gaps(field: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Fill bounded no-data runs with a horizontal gradient.
-
-    This follows live-cloud-maps' visual strategy: interpolate across gaps
-    instead of growing local means inward, which produced triangular artifacts.
-    """
+    """Repair bounded horizontal no-data runs with a linear gradient."""
     out = np.array(field, copy=True)
+    work_valid = valid.copy()
     repaired = np.zeros_like(valid, dtype=bool)
     height, width = out.shape
     max_gap = int(width * MAX_ROW_GAP_FRACTION)
 
     for y in range(height):
-        row_valid = valid[y]
-        if not np.any(row_valid):
-            continue
-
-        missing = ~row_valid
         x = 0
         while x < width:
-            if not missing[x]:
+            if work_valid[y, x]:
                 x += 1
                 continue
 
             start = x
-            while x < width and missing[x]:
+            while x < width and not work_valid[y, x]:
                 x += 1
             end = x
             run = end - start
 
-            if run > max_gap:
+            if run > max_gap or start == 0 or end >= width:
                 continue
 
-            left = start - 1
-            right = end
-            if left < 0 or right >= width:
+            left = max(0, start - 1 - GAP_BUFFER)
+            right = min(width - 1, end + GAP_BUFFER)
+            if not work_valid[y, left] or not work_valid[y, right]:
                 continue
 
-            left_safe = max(0, left - GAP_BUFFER)
-            right_safe = min(width - 1, right + GAP_BUFFER)
-            if not row_valid[left_safe] or not row_valid[right_safe]:
-                continue
-
-            span_start = left_safe + 1
-            span_end = right_safe
-            values = np.linspace(
-                float(out[y, left_safe]),
-                float(out[y, right_safe]),
-                span_end - span_start + 1,
-                dtype=np.float32,
-            )
-            target = np.arange(span_start, span_end + 1)
-            replace = ~row_valid[target]
-            out[y, target[replace]] = values[replace]
-            row_valid[target[replace]] = True
-            repaired[y, target[replace]] = True
+            xs = np.arange(start, end)
+            t = (xs - left) / float(right - left)
+            values = out[y, left] * (1.0 - t) + out[y, right] * t
+            out[y, xs] = values.astype(np.float32)
+            work_valid[y, xs] = True
+            repaired[y, xs] = True
 
     return out, repaired
 
 
-def _fill_remaining_vertical(
+def _blur_u8(field: np.ndarray, radius: float) -> np.ndarray:
+    image = Image.fromarray(np.clip(field, 0, 255).astype(np.uint8), mode="L")
+    image = image.filter(ImageFilter.GaussianBlur(radius=radius))
+    return np.asarray(image, dtype=np.float32)
+
+
+def _smooth_fill_remaining(
     field: np.ndarray,
     valid: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Fill irregular holes with normalized Gaussian interpolation."""
     out = np.array(field, copy=True)
     work_valid = valid.copy()
     repaired = np.zeros_like(valid, dtype=bool)
 
-    for _ in range(VERTICAL_FILL_PASSES):
+    for radius in GAUSSIAN_FILL_RADII:
         missing = ~work_valid
         if not np.any(missing):
             break
 
-        up = np.roll(out, 1, axis=0)
-        down = np.roll(out, -1, axis=0)
-        up_valid = np.roll(work_valid, 1, axis=0)
-        down_valid = np.roll(work_valid, -1, axis=0)
-        up_valid[0] = False
-        down_valid[-1] = False
-
-        can = missing & up_valid & down_valid
+        numerator = _blur_u8(out * work_valid.astype(np.float32), radius)
+        weight = _blur_u8(work_valid.astype(np.float32) * 255.0, radius)
+        can = missing & (weight >= GAUSSIAN_FILL_MIN_WEIGHT)
         if not np.any(can):
-            break
+            continue
 
-        out[can] = 0.5 * (up[can] + down[can])
+        estimate = numerator * 255.0 / np.maximum(weight, 1.0)
+        out[can] = np.clip(estimate[can], 0.0, 255.0)
         work_valid[can] = True
         repaired[can] = True
 
-    return out, repaired
+    return out, work_valid, repaired
 
 
 def _soft_mask(mask: np.ndarray, radius: float) -> np.ndarray:
     image = Image.fromarray(mask.astype(np.uint8) * 255, mode="L")
-    image = image.filter(ImageFilter.GaussianBlur(radius=radius))
+    if radius > 0.0:
+        image = image.filter(ImageFilter.GaussianBlur(radius=radius))
     return np.asarray(image, dtype=np.float32) / 255.0
 
 
@@ -373,12 +375,16 @@ def _to_equirectangular(
 
     missing_before = int(np.count_nonzero(~valid))
 
-    field, repaired_h = _fill_row_gaps(field, valid)
-    valid |= repaired_h
-    field, repaired_v = _fill_remaining_vertical(field, valid)
-    valid |= repaired_v
+    field, repaired_row = _fill_row_gaps(field, valid)
+    valid |= repaired_row
+    field, valid, repaired_smooth = _smooth_fill_remaining(field, valid)
+    repaired = repaired_row | repaired_smooth
 
-    repaired = repaired_h | repaired_v
+    if np.any(repaired):
+        repair_mix = _soft_mask(repaired, REPAIR_BLEND_RADIUS)
+        blurred = _blur_u8(field, REPAIR_BLEND_RADIUS)
+        field = field * (1.0 - repair_mix) + blurred * repair_mix
+
     remaining = int(np.count_nonzero(~valid))
     print(
         "GMGSI test gap repair: "
@@ -386,20 +392,16 @@ def _to_equirectangular(
         f"remaining={remaining}"
     )
 
-    fallback = _soft_mask(~valid, 4.0)
+    fallback = _soft_mask(~valid, UNRESOLVED_REFERENCE_BLUR)
 
     seam = np.zeros_like(valid, dtype=bool)
     rows = np.flatnonzero(inside_rows)
     if rows.size:
         first, last = int(rows[0]), int(rows[-1])
-        a = max(0, first - POLAR_SEAM_BLEND_ROWS)
-        b = min(OUTPUT_HEIGHT, first + POLAR_SEAM_BLEND_ROWS + 1)
-        c = max(0, last - POLAR_SEAM_BLEND_ROWS)
-        d = min(OUTPUT_HEIGHT, last + POLAR_SEAM_BLEND_ROWS + 1)
-        seam[a:b] = True
-        seam[c:d] = True
-    seam |= polar_mask > 0.5
-    seam_soft = _soft_mask(seam, 6.0) * 0.12
+        seam[max(0, first - POLAR_SEAM_BLEND_ROWS):min(OUTPUT_HEIGHT, first + POLAR_SEAM_BLEND_ROWS + 1)] = True
+        seam[max(0, last - POLAR_SEAM_BLEND_ROWS):min(OUTPUT_HEIGHT, last + POLAR_SEAM_BLEND_ROWS + 1)] = True
+
+    seam_soft = _soft_mask(seam, 5.0) * POLAR_REFERENCE_BLEND
 
     return field, fallback, seam_soft
 
@@ -415,7 +417,6 @@ def _cloud_seed_from_ir(lw: np.ndarray) -> np.ndarray:
 
 
 def _percentile_match(source: np.ndarray, reference: np.ndarray) -> np.ndarray:
-    """Softly calibrate density without the edge banding of full histogram match."""
     src = np.clip(source, 0.0, 1.0)
     ref = np.clip(reference, 0.0, 1.0)
 
@@ -424,6 +425,7 @@ def _percentile_match(source: np.ndarray, reference: np.ndarray) -> np.ndarray:
 
     src_x = np.concatenate(([0.0], src_q, [1.0]))
     ref_y = np.concatenate(([0.0], ref_q, [1.0]))
+
     src_x = np.maximum.accumulate(src_x)
     for i in range(1, src_x.size):
         if src_x[i] <= src_x[i - 1]:
@@ -459,17 +461,23 @@ def _cloud_rgba(
 ) -> tuple[np.ndarray, np.ndarray]:
     alpha = _cloud_seed_from_ir(lw)
 
-    alpha_img = Image.fromarray((alpha * 255).astype(np.uint8), mode="L")
+    alpha_img = Image.fromarray(np.clip(alpha * 255, 0, 255).astype(np.uint8), mode="L")
     alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(radius=ALPHA_BLUR_RADIUS))
     alpha = np.asarray(alpha_img, dtype=np.float32) / 255.0
 
     ref_alpha = reference[:, :, 3]
     alpha = _percentile_match(alpha, ref_alpha)
 
-    rgb_img = Image.fromarray((alpha * 255).astype(np.uint8), mode="L")
+    rgb_img = Image.fromarray(np.clip(alpha * 255, 0, 255).astype(np.uint8), mode="L")
     rgb_img = rgb_img.filter(ImageFilter.GaussianBlur(radius=RGB_BLUR_RADIUS))
-    rgb_luma = np.asarray(rgb_img, dtype=np.float32) / 255.0
-    rgb_luma = np.clip(rgb_luma * RGB_BRIGHTNESS, 0.0, 1.0)
+    rgb_raw = np.asarray(rgb_img, dtype=np.float32) / 255.0
+    ref_luma = np.mean(reference[:, :, :3], axis=2)
+    rgb_matched = _percentile_match(rgb_raw, ref_luma)
+    rgb_luma = np.clip(
+        rgb_raw * (1.0 - RGB_MATCH_MIX) + rgb_matched * RGB_MATCH_MIX,
+        0.0,
+        1.0,
+    )
     rgb = np.repeat(rgb_luma[:, :, None], 3, axis=2)
 
     if np.any(fallback_mask > 0.0):
@@ -483,7 +491,7 @@ def _cloud_rgba(
         alpha = alpha * (1.0 - seam_mask) + ref_alpha * seam_mask
 
     alpha_img = Image.fromarray(np.clip(alpha * 255, 0, 255).astype(np.uint8), mode="L")
-    alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(radius=0.45))
+    alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(radius=0.35))
     alpha = np.asarray(alpha_img, dtype=np.float32) / 255.0
 
     rgba = np.concatenate(
@@ -496,7 +504,7 @@ def _cloud_rgba(
     return rgba, alpha
 
 
-def _print_alpha_stats(label: str, alpha: np.ndarray, reference: np.ndarray) -> None:
+def _print_cloud_stats(label: str, rgba: np.ndarray, reference: np.ndarray) -> None:
     def stats(a: np.ndarray) -> str:
         u8 = np.clip(a * 255, 0, 255).astype(np.uint8)
         total = float(u8.size)
@@ -507,8 +515,15 @@ def _print_alpha_stats(label: str, alpha: np.ndarray, reference: np.ndarray) -> 
             f">192={np.count_nonzero(u8 > 192) / total * 100:.2f}%"
         )
 
+    alpha = rgba[:, :, 3].astype(np.float32) / 255.0
+    rgb = np.mean(rgba[:, :, :3].astype(np.float32), axis=2) / 255.0
+    ref_alpha = reference[:, :, 3]
+    ref_rgb = np.mean(reference[:, :, :3], axis=2)
+
     print(f"GMGSI test {label} alpha: {stats(alpha)}")
-    print(f"GMGSI test {label} reference alpha: {stats(reference[:, :, 3])}")
+    print(f"GMGSI test {label} reference alpha: {stats(ref_alpha)}")
+    print(f"GMGSI test {label} RGB: {stats(rgb)}")
+    print(f"GMGSI test {label} reference RGB: {stats(ref_rgb)}")
 
 
 def _estimate_ocean_specular_mask(output_dir: Path) -> np.ndarray:
@@ -547,7 +562,11 @@ def _estimate_ocean_specular_mask(output_dir: Path) -> np.ndarray:
 
 
 def _specular_from_cloud(base_ocean: np.ndarray, cloud_alpha: np.ndarray) -> np.ndarray:
-    return np.clip(base_ocean * np.clip(1.0 - 0.92 * cloud_alpha, 0.0, 1.0), 0.0, 1.0)
+    return np.clip(
+        base_ocean * np.clip(1.0 - 0.92 * cloud_alpha, 0.0, 1.0),
+        0.0,
+        1.0,
+    )
 
 
 def _seed_published_test_outputs(output_dir: Path) -> None:
@@ -593,7 +612,7 @@ def generate(output_dir: Path) -> None:
         reference = _load_rgba(output_dir / f"cloud_{label}.png")
         lw, fallback_mask, seam_mask = _to_equirectangular(raw, raw_valid, bounds)
         rgba, cloud_alpha = _cloud_rgba(lw, reference, fallback_mask, seam_mask)
-        _print_alpha_stats(label, cloud_alpha, reference)
+        _print_cloud_stats(label, rgba.astype(np.float32) / 255.0, reference)
         specular = _specular_from_cloud(base_ocean, cloud_alpha)
         prepared[label] = (rgba, specular)
 
