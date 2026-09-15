@@ -25,23 +25,34 @@ DEFAULT_LAT_MIN = -72.7368
 DEFAULT_LON_MIN = -179.9284
 DEFAULT_LON_MAX = 179.9996
 
-# Keep the 869e7c7-era look, but reduce the broad white plateau.
-# The previous revision lowered overall RGB gain only; that made the texture
-# darker without restoring tonal separation. This revision lowers alpha gain
-# and uses a lower RGB floor with a wider useful contrast range.
-CLOUD_ALPHA_START = 72.0
-CLOUD_ALPHA_FULL = 220.0
-CLOUD_ALPHA_GAMMA = 0.50
-CLOUD_ALPHA_GAIN = 0.96
-CLOUD_ALPHA_DILATE_SIZE = 3
-CLOUD_ALPHA_BLUR_RADIUS = 0.65
+# Absolute IR + local-contrast cloud detection.
+# The absolute branch captures thick/cold cloud; the local branch recovers
+# weaker/warm cloud structures that disappear with a single global threshold.
+CLOUD_ABS_START = 60.0
+CLOUD_ABS_FULL = 220.0
+CLOUD_ABS_GAMMA = 0.68
+CLOUD_ABS_GAIN = 0.92
 
-CLOUD_RGB_BASE = 118.0
-CLOUD_RGB_ALPHA_GAIN = 92.0
-CLOUD_RGB_DETAIL_GAIN = 34.0
-CLOUD_RGB_GAIN = 0.96
+CLOUD_LOCAL_BACKGROUND_RADIUS = 18.0
+CLOUD_LOCAL_START = 1.8
+CLOUD_LOCAL_FULL = 22.0
+CLOUD_LOCAL_GAMMA = 0.78
+CLOUD_LOCAL_GAIN = 0.72
 
-# Conservative no-data repair. Only pixels marked invalid by GMGSI are filled.
+CLOUD_ALPHA_BLUR_RADIUS = 0.45
+CLOUD_REPAIRED_ALPHA_SCALE = 0.88
+CLOUD_REPAIRED_MASK_BLUR = 1.0
+
+# Keep RGB independent from alpha thresholding so weak cloud keeps visible IR
+# texture. Values are tuned to stay near the production cloud brightness while
+# retaining much more midtone structure than the previous white/black masks.
+CLOUD_RGB_BASE = 164.0
+CLOUD_RGB_IR_GAIN = 54.0
+CLOUD_RGB_ALPHA_GAIN = 30.0
+CLOUD_RGB_LOCAL_GAIN = 18.0
+CLOUD_RGB_MAX = 247.0
+
+# Conservative no-data repair. Only GMGSI-invalid pixels are filled.
 GAP_BUFFER = 3
 MAX_ROW_GAP_FRACTION = 0.35
 GAUSSIAN_FILL_RADII = (2.0, 4.0, 8.0, 16.0, 32.0, 64.0)
@@ -297,7 +308,7 @@ def _to_equirectangular(
     bounds: tuple[float, float, float, float],
     width: int = OUTPUT_WIDTH,
     height: int = OUTPUT_HEIGHT,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     lat_max, lat_min, lon_min, lon_max = bounds
     src_h = source.shape[0]
 
@@ -337,7 +348,7 @@ def _to_equirectangular(
         f"before={missing_before}, repaired={int(np.count_nonzero(repaired))}, "
         f"remaining={remaining}"
     )
-    return result
+    return result, repaired
 
 
 def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
@@ -345,36 +356,59 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
     return t * t * (3.0 - 2.0 * t)
 
 
-def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _soft_mask(mask: np.ndarray, radius: float) -> np.ndarray:
+    image = Image.fromarray(mask.astype(np.uint8) * 255, mode="L")
+    if radius > 0.0:
+        image = image.filter(ImageFilter.GaussianBlur(radius=radius))
+    return np.asarray(image, dtype=np.float32) / 255.0
+
+
+def _cloud_rgba_from_lw(
+    lw: np.ndarray,
+    repaired_mask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     valid = lw > 0.0
 
-    alpha = _smoothstep(CLOUD_ALPHA_START, CLOUD_ALPHA_FULL, lw)
-    alpha = np.power(alpha, CLOUD_ALPHA_GAMMA)
-    alpha = np.clip(alpha * CLOUD_ALPHA_GAIN, 0.0, 1.0)
+    # Absolute-IR branch: thick/cold cloud.
+    absolute = _smoothstep(CLOUD_ABS_START, CLOUD_ABS_FULL, lw)
+    absolute = np.power(absolute, CLOUD_ABS_GAMMA)
+    absolute = np.clip(absolute * CLOUD_ABS_GAIN, 0.0, 1.0)
+
+    # Local-contrast branch: recover weak/warm cloud that is close to the
+    # background temperature and therefore lost by a global threshold alone.
+    background = _blur_u8(lw, CLOUD_LOCAL_BACKGROUND_RADIUS)
+    local_signal = np.maximum(lw - background, 0.0)
+    local = _smoothstep(CLOUD_LOCAL_START, CLOUD_LOCAL_FULL, local_signal)
+    local = np.power(local, CLOUD_LOCAL_GAMMA)
+    local = np.clip(local * CLOUD_LOCAL_GAIN, 0.0, 1.0)
+
+    alpha = np.maximum(absolute, local)
     alpha[~valid] = 0.0
 
     alpha_img = Image.fromarray(
         np.clip(alpha * 255.0, 0, 255).astype(np.uint8), mode="L"
     )
-    alpha_img = alpha_img.filter(ImageFilter.MaxFilter(size=CLOUD_ALPHA_DILATE_SIZE))
-    alpha_img = alpha_img.filter(ImageFilter.GaussianBlur(radius=CLOUD_ALPHA_BLUR_RADIUS))
+    alpha_img = alpha_img.filter(
+        ImageFilter.GaussianBlur(radius=CLOUD_ALPHA_BLUR_RADIUS)
+    )
     alpha = np.asarray(alpha_img, dtype=np.float32) / 255.0
     alpha[~valid] = 0.0
 
-    detail = np.clip(
-        (lw - CLOUD_ALPHA_START) / (CLOUD_ALPHA_FULL - CLOUD_ALPHA_START),
-        0.0,
-        1.0,
-    )
+    if np.any(repaired_mask):
+        repaired_soft = _soft_mask(repaired_mask, CLOUD_REPAIRED_MASK_BLUR)
+        repair_scale = 1.0 - repaired_soft * (1.0 - CLOUD_REPAIRED_ALPHA_SCALE)
+        alpha *= repair_scale
 
-    # Lower the RGB floor rather than simply darkening the old near-white curve.
-    # This restores visible midtone separation while keeping thick cloud bright.
+    # RGB keeps continuous IR texture independently of the alpha threshold.
+    ir_norm = np.clip(lw / 255.0, 0.0, 1.0)
+    local_norm = np.clip(local_signal / CLOUD_LOCAL_FULL, 0.0, 1.0)
     brightness = (
         CLOUD_RGB_BASE
-        + CLOUD_RGB_ALPHA_GAIN * np.power(alpha, 0.82)
-        + CLOUD_RGB_DETAIL_GAIN * np.power(detail, 0.95)
+        + CLOUD_RGB_IR_GAIN * np.power(ir_norm, 0.90)
+        + CLOUD_RGB_ALPHA_GAIN * np.power(alpha, 0.80)
+        + CLOUD_RGB_LOCAL_GAIN * np.power(local_norm, 0.75)
     )
-    brightness = np.clip(brightness * CLOUD_RGB_GAIN, 0.0, 245.0)
+    brightness = np.clip(brightness, 0.0, CLOUD_RGB_MAX)
     rgb = np.repeat(brightness[:, :, None], 3, axis=2)
     rgb[~valid] = 255.0
 
@@ -497,8 +531,8 @@ def generate(output_dir: Path) -> None:
         finally:
             nc_path.unlink(missing_ok=True)
 
-        lw = _to_equirectangular(raw, raw_valid, bounds)
-        rgba, cloud_alpha = _cloud_rgba_from_lw(lw)
+        lw, repaired_mask = _to_equirectangular(raw, raw_valid, bounds)
+        rgba, cloud_alpha = _cloud_rgba_from_lw(lw, repaired_mask)
         _print_alpha_stats(label, cloud_alpha)
         specular = _specular_from_cloud(base_ocean, cloud_alpha)
         prepared[label] = (rgba, specular)
@@ -524,8 +558,7 @@ def generate(output_dir: Path) -> None:
                 optimize=True,
                 subsampling=0,
             )
-            staged.append((cloud_stage, cloud_final))
-            staged.append((spec_stage, spec_final))
+            staged.extend(((cloud_stage, cloud_final), (spec_stage, spec_final)))
 
         for stage, final in staged:
             stage.replace(final)
