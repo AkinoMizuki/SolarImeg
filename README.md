@@ -1,11 +1,11 @@
 ## 更新周期
 
 Earth Weather は毎時 20 分に更新チェックします。
-`live-cloud-maps` 側の Cloud / Specular が変わっていない場合は previous/current とその時刻を変更しません。
+Cloud / Specular は NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI) の最新 2 観測を使用し、`previous` / `current` として配信します。
 
 既存の SOHO・名古屋市科学館・ルートの `clouds.jpg` / `specular.jpg` は 3 時間周期で更新します。
 
-`metadata.json` には Cloud / Specular の previous/current 時刻、GFS の run 時刻、forecast hour、valid 時刻、風速の最大エンコード値などを記録します。
+`metadata.json` には Cloud / Specular の previous/current 観測時刻、GMGSI のソースキー、GFS の run 時刻、forecast hour、valid 時刻、風速の最大エンコード値などを記録します。
 
 ---
 
@@ -28,13 +28,13 @@ Earth Weather は毎時 20 分に更新チェックします。
 | 名古屋市科学館 太陽像 | 名古屋市科学館 | CC BY 2.1 JP | **必須** | `Solar imagery: 名古屋市科学館` |
 | 3時間更新 Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
 | 3時間更新 Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
-| Earth Weather Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
-| Earth Weather Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
+| Earth Weather Cloud | NOAA / NESDIS GMGSI via NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA は出典表示を要請。SolarImeg では表示 | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
+| Earth Weather Specular Base | `live-cloud-maps` / Matt Eason の static monthly `specular-base` | CC0 1.0 Universal | 作者クレジットは任意 | `Specular base: live-cloud-maps by Matt Eason.` |
 | Earth Weather Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
 
 Earth Weather をまとめて表示する場合の例:
 
-> Earth Weather — Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+> Earth Weather — Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified by SolarImeg. Specular base: live-cloud-maps by Matt Eason. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
 
 ---
 
@@ -201,38 +201,54 @@ EUMETSAT 必須表記:
 
 # Earth Weather
 
-Unity / VRChat の地球表示で利用するため、雲・海面スペキュラ・風向風速を定期更新して GitHub Pages から配信します。
+Unity / VRChat の地球表示で利用するため、雲・海面スペキュラ・風向風速を毎時更新して GitHub Pages から配信します。
 
 ## Earth Weather のデータ元・クレジット
 
-Earth Weather は Cloud / Specular / Wind をまとめて 1 つの地球気象システムとして扱います。以下の外部データ・サービスを組み合わせて使用しています。
+Earth Weather は Cloud / Specular / Wind をまとめて 1 つの地球気象システムとして扱います。
 
 ### クレジット表
 
 | 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
 | --- | --- | --- | --- | --- |
-| Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
-| Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
+| Cloud | NOAA / NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA は出典表示を要請。SolarImeg では表示 | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
+| Specular Base | `live-cloud-maps` / Matt Eason の static monthly `specular-base` | CC0 1.0 Universal | 作者クレジットは任意 | `Specular base: live-cloud-maps by Matt Eason.` |
 | Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
 
-### Cloud / Specular: live-cloud-maps / EUMETSAT
+### Cloud: NOAA / NESDIS GMGSI
 
-Earth Weather の Cloud / Specular は Matt Eason 氏の `live-cloud-maps` を利用しています。
+Earth Weather の Cloud は NOAA/NESDIS の **Global Mosaic of Geostationary Satellite Imagery (GMGSI)** の Longwave Infrared (`GMGSI_LW`) を使用します。
+
+- NOAA Open Data Registry: https://registry.opendata.aws/noaa-gmgsi/
+- S3 bucket: `s3://noaa-gmgsi-pds/`
+- Product: `GMGSI_LW`
+- 更新周期: 約 1 時間
+- 公称水平解像度: 約 8 km
+- 入力衛星群: GOES-East / GOES-West、Meteosat、Himawari 等から構成される全球モザイク
+
+NOAA Open Data Dissemination (NODD) で配布される GMGSI は公開利用できます。NOAA は未改変データの利用・配布時に attribution を要請しており、NOAA の支持・提携を示唆してはいけません。
+
+SolarImeg の `cloud_previous.png` / `cloud_current.png` は GMGSI の Longwave IR をそのまま転載した画像ではありません。正距円筒化、欠損補完、極域ミラー、絶対 IR と局所コントラストによる雲抽出、RGBA 化を行った **modified / derived product** です。
+
+表示用クレジット例:
+
+> Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified by SolarImeg.
+
+### Specular Base: live-cloud-maps
+
+海面反射の陸海マスクには `live-cloud-maps` リポジトリの月別 static `specular-base` を利用します。
 
 - Project: https://github.com/matteason/live-cloud-maps
-- Cloud source: https://clouds.matteason.co.uk/images/2048x1024/clouds-alpha.png
-- Specular source: https://clouds.matteason.co.uk/images/2048x1024/specular.jpg
-- EUMETSAT Data Policy / Licensing: https://www.eumetsat.int/eumetsat-data-licensing
+- Source path: `static_images/monthly/specular-base/{month}.jpg`
+- Licence: CC0 1.0 Universal
 
-`live-cloud-maps` のコードと同プロジェクトが公開する画像は **CC0 1.0 Universal** とされています。CC0 自体はクレジット表示を要求しないため、Matt Eason 氏への attribution は **必須ではありません**。Earth Weather ではデータ生成サービスの提供元としてクレジットします。
+この static base に、同時刻の GMGSI Cloud Alpha を反転した遮蔽を掛けて `specular_previous.jpg` / `specular_current.jpg` を生成します。
 
-一方、雲データの元データには **EUMETSAT データ**が含まれるため、EUMETSAT の条件は別途適用されます。Cloud / Specular を利用・再配布する場合は次の attribution を表示してください。
+したがって Earth Weather の Specular の **雲遮蔽は GMGSI 由来**で、`live-cloud-maps` のリアルタイム `specular.jpg` は使用しません。
 
-> Contains modified EUMETSAT data
+表示用クレジット例:
 
-Cloud / Specular の表示用クレジット例:
-
-> Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data.
+> Specular base: live-cloud-maps by Matt Eason.
 
 ### Wind: NOAA / NWS / NCEP GFS via NOMADS
 
@@ -245,9 +261,7 @@ Cloud / Specular の表示用クレジット例:
 - Parameters: `UGRD`, `VGRD`
 - Levels: 10 m above ground / 850 hPa / 700 hPa
 
-NOAA / NWS の米国政府情報は、個別に別の表示があるものを除き、**Public Domain（パブリックドメイン）**として扱われます。MIT や Creative Commons ライセンスではありません。
-
-通常の著作権ライセンス上の attribution 義務としては扱われませんが、出典とデータ来歴を明確にするため、**Earth Weather ではクレジット表示を推奨し、この README では表示します**。
+NOAA / NWS の米国政府情報は、個別に別の表示があるものを除き、Public Domain として扱われます。Earth Weather ではデータ来歴を明確にするため出典を表示します。
 
 Wind の表示用クレジット例:
 
@@ -267,7 +281,7 @@ Earth Weather は取得した U/V 風成分を RGBA データテクスチャへ�
 
 Earth Weather をシステムとしてまとめて表示する場合は、例えば次のように表記できます。
 
-> Earth Weather — Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+> Earth Weather — Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified by SolarImeg. Specular base: live-cloud-maps by Matt Eason. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
 
 ## 配信ファイル
 
@@ -290,16 +304,20 @@ Earth Weather をシステムとしてまとめて表示する場合は、例え
 
 ## Cloud / Specular
 
-`weather/cloud_previous.png` / `weather/cloud_current.png` は `live-cloud-maps` の `clouds-alpha.png` を RGBA 雲テクスチャとして利用します。
+`weather/cloud_previous.png` / `weather/cloud_current.png` は、GMGSI `GMGSI_LW` の最新 2 観測から生成する 2048 x 1024 の RGBA 雲テクスチャです。
 
-`clouds-alpha.png` は雲専用に生成された透明 PNG で、RGB が雲の陰影・明るさ、A が雲の不透明度です。そのため SolarImeg 側で地表除去や雲マスクの再抽出は行いません。
+- RGB: 雲の明るさ・陰影
+- A: 雲の不透明度
+- 全球一律の IR しきい値だけでなく、局所コントラストも使って弱い雲を保持
+- GMGSI の欠損領域のみ補間し、有効データは極力保持
+- GMGSI が直接カバーしない極域はミラーして補います
 
-Earth Weather では specular も履歴を持ちます。
+Earth Weather の specular も同じ観測時刻で履歴を持ちます。
 
-- `specular_previous.jpg` : `cloud_previous.png` と同じ世代の海面スペキュラ
-- `specular_current.jpg` : `cloud_current.png` と同じ世代の海面スペキュラ
+- `specular_previous.jpg`: `cloud_previous.png` と同じ世代
+- `specular_current.jpg`: `cloud_current.png` と同じ世代
 
-`live-cloud-maps` の `specular.jpg` は海面用のベースマップへ雲による遮蔽を反映して生成されているため、雲がある場所では海面反射が抑えられます。
+月別 `specular-base` に GMGSI Cloud Alpha の遮蔽を適用するため、雲がある場所では海面反射が抑えられます。
 
 Cloud と Specular は必ずセットで世代交代し、同じ補間率で previous → current を補間する前提です。
 
@@ -312,9 +330,9 @@ cloud_current.png     <-> specular_current.jpg
 
 GFS の UGRD / VGRD から、VRChat / Unity の Shader で直接利用できる RGBA データテクスチャを生成します。
 
-- `wind_surface.png` : 地上 10 m 風。風向・風速の表示用
-- `wind_850hpa.png` : 850 hPa 風。低層雲の移流用候補
-- `wind_700hpa.png` : 700 hPa 風。中層雲の移流用候補
+- `wind_surface.png`: 地上 10 m 風。風向・風速の表示用
+- `wind_850hpa.png`: 850 hPa 風。低層雲の移流用候補
+- `wind_700hpa.png`: 700 hPa 風。中層雲の移流用候補
 
 各テクスチャは 1440 x 720 の正距円筒図法です。
 経度は左端が -180°、中央が 0°（Greenwich）、右端が +180°です。
@@ -391,82 +409,44 @@ Sphere の UV 配置によって南北方向が逆に見える場合は、Shader
 AkinoMizuki/Planets/EarthCloudWeather
 ```
 
-この Shader は Cloud、風向表示、Specular の各 Pass を持ち、Material の Toggle で必要な表示だけを有効にします。
+Cloud / Specular / Wind は **1 つの EarthCloudWeather Material** にまとめて割り当てます。
+`specular_previous/current` は別 Material ではなく、Cloud と同じ Material 内で使用する海面反射マスクです。
 
 ### 構成
 
 ```text
-EarthSphere
-├─ 地表 Material
-└─ Specular Material
-   ├─ weather/specular_previous.jpg
-   └─ weather/specular_current.jpg
-
 CloudSphere
 └─ EarthCloudWeather Material
    ├─ weather/cloud_previous.png
    ├─ weather/cloud_current.png
+   ├─ weather/specular_previous.jpg
+   ├─ weather/specular_current.jpg
    ├─ weather/wind_surface.png
    ├─ weather/wind_850hpa.png
    └─ weather/wind_700hpa.png
 ```
 
-### CloudSphere の Material
+### EarthCloudWeather Material
 
 | Shader Property | Texture / 設定 |
 | --- | --- |
 | `Cloud Previous (RGBA)` | `weather/cloud_previous.png` |
 | `Cloud Current (RGBA)` | `weather/cloud_current.png` |
+| `Specular Previous` | `weather/specular_previous.jpg` |
+| `Specular Current` | `weather/specular_current.jpg` |
 | `Wind Surface (RGBA Data)` | `weather/wind_surface.png` |
 | `Wind 850 hPa (RGBA Data)` | `weather/wind_850hpa.png` |
 | `Wind 700 hPa (RGBA Data)` | `weather/wind_700hpa.png` |
 | `Cloud Enabled` | ON |
-| `Wind Arrow Enabled` | ON |
-| `Specular Enabled` | OFF |
+| `Wind Arrow Enabled` | 必要に応じて ON/OFF |
 
 `Wind Surface` は表示用の風向・風速、`Wind 850 hPa` / `Wind 700 hPa` は雲の短時間移流に使用します。
 
 風向表示は 1 セルに複数の短い流れ片を持たせ、風向方向へ連続的に移動させます。風速に応じて移動速度と表示色を変え、高緯度では経度方向の表示密度を減らして極付近への集中を抑えます。
 
-動作確認時の初期値例:
-
-```text
-Wind Arrow Density          = 20
-Wind Streams Per Cell       = 3
-Wind Stream Lateral Spacing = 0.18
-Wind Stream Length Scale    = 0.65
-Wind Arrow Travel           = 1.8
-Wind Arrow Animation Speed  = 0.45
-Polar Arrow Fade Start      = 75
-Polar Arrow Fade End        = 88
-```
-
-### EarthSphere の Specular Material
-
-地表の海面反射には同じ Shader を Specular 用 Material として使用できます。
-EarthSphere の追加 Material、または地表のすぐ外側に置いた Specular 専用 Sphere に使用します。
-
-| Shader Property | Texture / 設定 |
-| --- | --- |
-| `Specular Previous` | `weather/specular_previous.jpg` |
-| `Specular Current` | `weather/specular_current.jpg` |
-| `Cloud Enabled` | OFF |
-| `Wind Arrow Enabled` | OFF |
-| `Specular Enabled` | ON |
-
-初期値例:
-
-```text
-Specular Strength = 1.5
-Specular Power    = 128
-Specular Height   = 0.0005
-```
-
-Specular は太陽方向 `_SunDir` と視線方向からハイライトを計算し、`specular_previous/current` をマスクとして海面のみ反射させます。雲のある場所は元の specular map 側で反射が抑制されています。
-
 ### Previous / Current の補間
 
-Cloud と Specular は同じ世代で更新されるため、両 Material で同じ `_CloudBlend` を使用してください。
+Cloud と Specular は同じ GMGSI 観測世代で更新されるため、同じ補間率を使用します。
 
 ```text
 0.0 = previous
@@ -483,7 +463,7 @@ Cloud と Specular は同じ世代で更新されるため、両 Material で同
 material.SetVector("_SunDir", sunDirection.normalized);
 ```
 
-Cloud の昼夜の明るさと EarthSphere の Specular の両方で同じ太陽方向を利用します。
+Cloud の昼夜の明るさと Specular の両方で同じ太陽方向を利用します。
 
 ### Texture Import Settings
 
@@ -502,7 +482,7 @@ Filter Mode           = Bilinear
 ```text
 sRGB (Color Texture) = OFF
 Compression          = None 推奨
-Filter Mode          = Bilinear
+Filter Mode           = Bilinear
 Wrap U               = Repeat
 Wrap V               = Clamp
 ```
@@ -516,7 +496,7 @@ Wind Texture を sRGB のまま使用する必要がある場合は、Material �
 ```text
 sRGB (Color Texture) = OFF
 Compression          = None 推奨
-Filter Mode          = Bilinear
+Filter Mode           = Bilinear
 ```
 
 sRGB として読み込む場合は `Specular Texture Is sRGB` を ON にしてください。
