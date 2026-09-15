@@ -55,6 +55,11 @@ jobs:
         run: |
           python weather/update_weather.py
 
+      - name: NOAA GMGSI 仮テクスチャを生成
+        continue-on-error: true
+        run: |
+          python weather/gmgsi_test_generator.py --output _site/weather
+
       - name: index.html を生成
         run: |
           TIMESTAMP=$(date '+%s')
@@ -81,6 +86,11 @@ jobs:
                   <li><a href="weather/wind_850hpa.png?'$TIMESTAMP'">weather/wind_850hpa.png</a></li>
                   <li><a href="weather/wind_700hpa.png?'$TIMESTAMP'">weather/wind_700hpa.png</a></li>
                   <li><a href="weather/metadata.json?'$TIMESTAMP'">weather/metadata.json</a></li>
+                   <p>Earth Weather NOAA GMGSI Test</p>
+                  <li><a href="weather/cloud_previous_test.png?'$TIMESTAMP'">weather/cloud_previous_test.png</a></li>
+                  <li><a href="weather/cloud_current_test.png?'$TIMESTAMP'">weather/cloud_current_test.png</a></li>
+                  <li><a href="weather/specular_previous_test.jpg?'$TIMESTAMP'">weather/specular_previous_test.jpg</a></li>
+                  <li><a href="weather/specular_current_test.jpg?'$TIMESTAMP'">weather/specular_current_test.jpg</a></li>
                    <p>名古屋市科学館からの太陽像</p>
                   <li><img src="now_wh.jpg?'$TIMESTAMP'" alt="now_wh.jpg"></li>
                   <li><img src="now_ha.jpg?'$TIMESTAMP'" alt="now_ha.jpg"></li>

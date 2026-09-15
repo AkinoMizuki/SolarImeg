@@ -1,0 +1,377 @@
+from __future__ import annotations
+
+import argparse
+import os
+import tempfile
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.parse import quote
+
+import numpy as np
+import requests
+from netCDF4 import Dataset
+from PIL import Image, ImageFilter
+
+S3_BASE_URL = "https://noaa-gmgsi-pds.s3.amazonaws.com"
+S3_PRODUCT = "GMGSI_LW"
+S3_FILENAME_PREFIX = "GLOBCOMPLIR"
+
+OUTPUT_WIDTH = 2048
+OUTPUT_HEIGHT = 1024
+
+DEFAULT_LAT_MAX = 72.7154
+DEFAULT_LAT_MIN = -72.7368
+DEFAULT_LON_MIN = -179.9284
+DEFAULT_LON_MAX = 179.9996
+
+# GMGSI LW values are encoded 0..255 brightness temperature values.
+# Colder/high cloud tops have larger encoded values; ~110 is roughly 270 K.
+CLOUD_THRESHOLD = 110.0
+CLOUD_MAX = 255.0
+
+PRODUCTION_WEATHER_BASE = "https://akinomizuki.github.io/SolarImeg/weather"
+TEST_FILENAMES = (
+    "cloud_previous_test.png",
+    "cloud_current_test.png",
+    "specular_previous_test.jpg",
+    "specular_current_test.jpg",
+)
+
+
+def _utc_hour_floor(dt: datetime) -> datetime:
+    return dt.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+
+def _list_keys(prefix: str, timeout: int = 30) -> list[str]:
+    response = requests.get(
+        S3_BASE_URL,
+        params={"list-type": "2", "prefix": prefix},
+        timeout=timeout,
+        headers={"User-Agent": "AkinoMizuki-SolarImeg/GMGSI-Test"},
+    )
+    response.raise_for_status()
+    root = ET.fromstring(response.content)
+    keys: list[str] = []
+    for element in root.iter():
+        if element.tag.endswith("Key") and element.text:
+            keys.append(element.text)
+    return keys
+
+
+def _find_latest_two_keys(lookback_hours: int = 36) -> list[tuple[datetime, str]]:
+    now = _utc_hour_floor(datetime.now(timezone.utc))
+    found: list[tuple[datetime, str]] = []
+
+    for offset in range(lookback_hours + 1):
+        slot = now - timedelta(hours=offset)
+        prefix = (
+            f"{S3_PRODUCT}/{slot.year:04d}/{slot.month:02d}/{slot.day:02d}/"
+            f"{slot.hour:02d}/"
+        )
+        try:
+            keys = _list_keys(prefix)
+        except Exception as exc:
+            print(f"GMGSI test: list failed for {prefix}: {exc}")
+            continue
+
+        candidates = [
+            key
+            for key in keys
+            if key.rsplit("/", 1)[-1].startswith(S3_FILENAME_PREFIX)
+            and key.lower().endswith(".nc")
+        ]
+        if not candidates:
+            continue
+
+        found.append((slot, sorted(candidates)[-1]))
+        if len(found) >= 2:
+            break
+
+    if len(found) < 2:
+        raise RuntimeError(
+            f"Could not find two GMGSI LW observations in the last {lookback_hours} hours"
+        )
+
+    return sorted(found, key=lambda item: item[0])
+
+
+def _download_netcdf(key: str, timeout: int = 120) -> Path:
+    url = f"{S3_BASE_URL}/{quote(key, safe='/')}"
+    response = requests.get(
+        url,
+        timeout=timeout,
+        stream=True,
+        headers={"User-Agent": "AkinoMizuki-SolarImeg/GMGSI-Test"},
+    )
+    response.raise_for_status()
+
+    fd, name = tempfile.mkstemp(prefix="gmgsi_lw_", suffix=".nc")
+    os.close(fd)
+    path = Path(name)
+    try:
+        with path.open("wb") as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def _read_gmgsi_plane(path: Path) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    with Dataset(path, "r") as ds:
+        raw_data = ds.variables["data"][:]
+        if np.ma.isMaskedArray(raw_data):
+            raw_data = np.ma.filled(raw_data, np.nan)
+        data = np.asarray(raw_data, dtype=np.float32)
+        data = np.squeeze(data)
+        if data.ndim != 2:
+            raise RuntimeError(f"Unexpected GMGSI data shape: {data.shape}")
+
+        if "dqf" in ds.variables:
+            dqf = np.asarray(ds.variables["dqf"][:])
+            dqf = np.squeeze(dqf)
+            if dqf.shape == data.shape:
+                data = np.where(dqf == 0, data, np.nan)
+
+        data = np.where(np.isfinite(data), data, 0.0)
+        data = np.clip(data, 0.0, 255.0)
+
+        lat_max = float(getattr(ds, "geospatial_lat_max", DEFAULT_LAT_MAX))
+        lat_min = float(getattr(ds, "geospatial_lat_min", DEFAULT_LAT_MIN))
+        lon_min = float(getattr(ds, "geospatial_lon_min", DEFAULT_LON_MIN))
+        lon_max = float(getattr(ds, "geospatial_lon_max", DEFAULT_LON_MAX))
+
+    return data, (lat_max, lat_min, lon_min, lon_max)
+
+
+def _mercator_y(latitude_deg: np.ndarray | float) -> np.ndarray:
+    lat = np.asarray(latitude_deg, dtype=np.float64)
+    lat = np.clip(lat, -89.999999, 89.999999)
+    return np.arctanh(np.sin(np.deg2rad(lat)))
+
+
+def _to_equirectangular(
+    source: np.ndarray,
+    bounds: tuple[float, float, float, float],
+    width: int = OUTPUT_WIDTH,
+    height: int = OUTPUT_HEIGHT,
+) -> np.ndarray:
+    lat_max, lat_min, lon_min, lon_max = bounds
+    src_h, _ = source.shape
+
+    src_img = Image.fromarray(np.clip(source, 0, 255).astype(np.uint8), mode="L")
+    horizontal = np.asarray(
+        src_img.resize((width, src_h), Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    )
+
+    target_lat = np.linspace(90.0, -90.0, height, dtype=np.float64)
+    valid = (target_lat <= lat_max) & (target_lat >= lat_min)
+
+    src_y_top = float(_mercator_y(lat_max))
+    src_y_bottom = float(_mercator_y(lat_min))
+    target_y = _mercator_y(np.clip(target_lat, lat_min, lat_max))
+    row = (src_y_top - target_y) / (src_y_top - src_y_bottom) * (src_h - 1)
+    row = np.clip(row, 0.0, src_h - 1.0)
+
+    row0 = np.floor(row).astype(np.int32)
+    row1 = np.minimum(row0 + 1, src_h - 1)
+    frac = (row - row0).astype(np.float32)[:, None]
+
+    result = horizontal[row0] * (1.0 - frac) + horizontal[row1] * frac
+    result[~valid, :] = 0.0
+
+    if lon_min > -179.99 or lon_max < 179.99:
+        target_lon = np.linspace(-180.0, 180.0, width, endpoint=False)
+        lon_valid = (target_lon >= lon_min) & (target_lon <= lon_max)
+        result[:, ~lon_valid] = 0.0
+
+    return result
+
+
+def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
+    t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    # Temporary IR-only cloud extraction for visual validation.
+    alpha = _smoothstep(CLOUD_THRESHOLD, CLOUD_MAX, lw)
+    alpha = np.power(alpha, 0.72)
+
+    detail = np.clip((lw - CLOUD_THRESHOLD) / (CLOUD_MAX - CLOUD_THRESHOLD), 0.0, 1.0)
+    brightness = 170.0 + 85.0 * np.sqrt(detail)
+    rgb = np.repeat(brightness[:, :, None], 3, axis=2)
+
+    rgba = np.concatenate(
+        [
+            np.clip(rgb, 0, 255).astype(np.uint8),
+            np.clip(alpha * 255.0, 0, 255).astype(np.uint8)[:, :, None],
+        ],
+        axis=2,
+    )
+    return rgba, alpha
+
+
+def _load_rgba(path: Path, size: tuple[int, int]) -> np.ndarray:
+    return np.asarray(
+        Image.open(path).convert("RGBA").resize(size, Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    ) / 255.0
+
+
+def _load_gray(path: Path, size: tuple[int, int]) -> np.ndarray:
+    return np.asarray(
+        Image.open(path).convert("L").resize(size, Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    ) / 255.0
+
+
+def _estimate_ocean_specular_mask(output_dir: Path) -> np.ndarray:
+    """Approximate a static ocean mask from the existing production pair.
+
+    live-cloud-maps specular already contains cloud occlusion. The two production
+    generations are used to estimate the underlying ocean reflection mask, then
+    the GMGSI-derived cloud alpha is applied. This is intentionally test-only;
+    a dedicated static ocean mask should replace it if GMGSI becomes production.
+    """
+    size = (OUTPUT_WIDTH, OUTPUT_HEIGHT)
+    samples: list[tuple[np.ndarray, np.ndarray]] = []
+    for suffix in ("previous", "current"):
+        cloud_path = output_dir / f"cloud_{suffix}.png"
+        spec_path = output_dir / f"specular_{suffix}.jpg"
+        if cloud_path.exists() and spec_path.exists():
+            cloud = _load_rgba(cloud_path, size)
+            spec = _load_gray(spec_path, size)
+            samples.append((cloud[:, :, 3], spec))
+
+    if not samples:
+        raise RuntimeError(
+            "Production cloud/specular textures are required to build test specular maps"
+        )
+
+    numerator = np.zeros((OUTPUT_HEIGHT, OUTPUT_WIDTH), dtype=np.float32)
+    denominator = np.zeros_like(numerator)
+    fallback = np.zeros_like(numerator)
+
+    for cloud_alpha, spec in samples:
+        clear_factor = np.clip(1.0 - 0.85 * cloud_alpha, 0.18, 1.0)
+        estimate = np.clip(spec / clear_factor, 0.0, 1.0)
+        confidence = np.power(1.0 - cloud_alpha, 2.0) + 0.03
+        numerator += estimate * confidence
+        denominator += confidence
+        fallback = np.maximum(fallback, spec)
+
+    base = np.where(denominator > 0.0, numerator / denominator, fallback)
+    base = np.maximum(base, fallback)
+    base = np.clip(base, 0.0, 1.0)
+
+    base_img = Image.fromarray((base * 255.0).astype(np.uint8), mode="L")
+    base_img = base_img.filter(ImageFilter.GaussianBlur(radius=0.6))
+    return np.asarray(base_img, dtype=np.float32) / 255.0
+
+
+def _specular_from_cloud(base_ocean: np.ndarray, cloud_alpha: np.ndarray) -> np.ndarray:
+    occlusion = np.clip(1.0 - 0.92 * cloud_alpha, 0.0, 1.0)
+    return np.clip(base_ocean * occlusion, 0.0, 1.0)
+
+
+def _seed_published_test_outputs(output_dir: Path) -> None:
+    """Keep the last published _test set if the experimental update fails."""
+    stamp = str(int(datetime.now(timezone.utc).timestamp()))
+    for name in TEST_FILENAMES:
+        path = output_dir / name
+        if path.exists():
+            continue
+        try:
+            response = requests.get(
+                f"{PRODUCTION_WEATHER_BASE}/{name}",
+                params={"t": stamp},
+                timeout=20,
+                headers={
+                    "Cache-Control": "no-cache",
+                    "User-Agent": "AkinoMizuki-SolarImeg/GMGSI-Test",
+                },
+            )
+            response.raise_for_status()
+            path.write_bytes(response.content)
+            print(f"GMGSI test: restored published fallback {name}")
+        except Exception:
+            pass
+
+
+def generate(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _seed_published_test_outputs(output_dir)
+
+    observations = _find_latest_two_keys()
+    labels = ("previous", "current")
+    base_ocean = _estimate_ocean_specular_mask(output_dir)
+
+    prepared: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for label, (slot, key) in zip(labels, observations):
+        print(f"GMGSI test {label}: {slot.isoformat()}  s3://noaa-gmgsi-pds/{key}")
+        nc_path = _download_netcdf(key)
+        try:
+            raw, bounds = _read_gmgsi_plane(nc_path)
+        finally:
+            nc_path.unlink(missing_ok=True)
+
+        lw = _to_equirectangular(raw, bounds)
+        rgba, cloud_alpha = _cloud_rgba_from_lw(lw)
+        specular = _specular_from_cloud(base_ocean, cloud_alpha)
+        prepared[label] = (rgba, specular)
+
+    # Stage all four files and only replace the public test set once the full
+    # previous/current cloud+specular batch has completed.
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for label in labels:
+            rgba, specular = prepared[label]
+            cloud_final = output_dir / f"cloud_{label}_test.png"
+            spec_final = output_dir / f"specular_{label}_test.jpg"
+            cloud_stage = output_dir / f".cloud_{label}_test.stage.png"
+            spec_stage = output_dir / f".specular_{label}_test.stage.jpg"
+
+            Image.fromarray(rgba, mode="RGBA").save(
+                cloud_stage, format="PNG", optimize=True
+            )
+            Image.fromarray(
+                (specular * 255.0).astype(np.uint8), mode="L"
+            ).convert("RGB").save(
+                spec_stage,
+                format="JPEG",
+                quality=92,
+                optimize=True,
+                subsampling=0,
+            )
+            staged.append((cloud_stage, cloud_final))
+            staged.append((spec_stage, spec_final))
+
+        for stage, final in staged:
+            stage.replace(final)
+            print(f"  {final} ({final.stat().st_size} bytes)")
+    finally:
+        for stage, _ in staged:
+            stage.unlink(missing_ok=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate temporary NOAA GMGSI Earth Weather test textures"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("_site/weather"),
+        help="Weather output directory (default: _site/weather)",
+    )
+    args = parser.parse_args()
+    generate(args.output)
+
+
+if __name__ == "__main__":
+    main()
