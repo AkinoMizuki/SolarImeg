@@ -25,18 +25,23 @@ DEFAULT_LAT_MIN = -72.7368
 DEFAULT_LON_MIN = -179.9284
 DEFAULT_LON_MAX = 179.9996
 
-# GMGSI LW values are encoded 0..255 brightness temperature values.
-# Colder/high cloud tops have larger encoded values. The first opacity pass
-# was too thin; the second pass was better but still did not include the polar
-# caps. The polar mirror itself raises global cloud coverage, so this curve is
-# only moderately stronger than the second pass rather than being pushed all
-# the way to the live-cloud-maps alpha distribution.
-CLOUD_ALPHA_START = 64.0
-CLOUD_ALPHA_FULL = 215.0
-CLOUD_ALPHA_GAMMA = 0.38
-CLOUD_ALPHA_GAIN = 1.18
+# GMGSI LW values are encoded 0..255 brightness-temperature values.
+# The previous pass became too dense after polar mirroring, so this curve
+# backs off the saturation while retaining thin/mid-level cloud detail.
+CLOUD_ALPHA_START = 68.0
+CLOUD_ALPHA_FULL = 225.0
+CLOUD_ALPHA_GAMMA = 0.44
+CLOUD_ALPHA_GAIN = 1.08
 CLOUD_ALPHA_DILATE_SIZE = 3
-CLOUD_ALPHA_BLUR_RADIUS = 0.65
+CLOUD_ALPHA_BLUR_RADIUS = 0.70
+
+# The mirrored caps are kept, but small no-data wedges around the fold seam
+# are locally reconstructed from valid neighbours. This is intentionally
+# limited to the seam region so ordinary clear/no-data handling elsewhere is
+# not changed by the experimental polar treatment.
+POLAR_SEAM_FILL_ROWS = 48
+POLAR_HOLE_FILL_PASSES = 5
+POLAR_HOLE_MIN_NEIGHBORS = 3
 
 PRODUCTION_WEATHER_BASE = "https://akinomizuki.github.io/SolarImeg/weather"
 TEST_FILENAMES = (
@@ -162,17 +167,7 @@ def _mercator_y(latitude_deg: np.ndarray | float) -> np.ndarray:
 
 
 def _mirror_polar_caps(result: np.ndarray, valid_rows: np.ndarray) -> np.ndarray:
-    """Fill unavailable GMGSI polar caps by literal latitude mirroring.
-
-    GMGSI currently ends at roughly +/-72.7 degrees. For the test texture we
-    mirror the immediately adjacent valid latitude band across each data edge,
-    matching the fold-back style seen in the existing cloud texture instead of
-    stretching one last row all the way to the pole.
-
-    This is deliberately a vertical fold only: longitude is left unchanged.
-    The row directly outside each GMGSI edge duplicates the edge row, and rows
-    farther toward the pole walk back toward lower absolute latitudes.
-    """
+    """Fill unavailable GMGSI polar caps by literal latitude mirroring."""
     filled = np.array(result, copy=True)
     valid_indices = np.flatnonzero(valid_rows)
     if valid_indices.size == 0:
@@ -208,6 +203,62 @@ def _mirror_polar_caps(result: np.ndarray, valid_rows: np.ndarray) -> np.ndarray
     return filled
 
 
+def _fill_polar_seam_holes(result: np.ndarray, valid_rows: np.ndarray) -> np.ndarray:
+    """Fill only small zero-valued holes close to the two polar fold seams.
+
+    GMGSI uses zero as the no-data sentinel after DQF masking. Mirroring can
+    turn small edge gaps into visible triangular wedges. Repeated neighbour
+    averaging closes those local wedges while leaving the rest of the global
+    field untouched. Longitude rolls naturally, which is correct for a 360°
+    equirectangular texture.
+    """
+    filled = np.array(result, copy=True)
+    valid_indices = np.flatnonzero(valid_rows)
+    if valid_indices.size == 0:
+        return filled
+
+    first_valid = int(valid_indices[0])
+    last_valid = int(valid_indices[-1])
+    height = filled.shape[0]
+
+    seam_mask = np.zeros(filled.shape, dtype=bool)
+    north0 = max(0, first_valid - POLAR_SEAM_FILL_ROWS)
+    north1 = min(height, first_valid + POLAR_SEAM_FILL_ROWS + 1)
+    south0 = max(0, last_valid - POLAR_SEAM_FILL_ROWS)
+    south1 = min(height, last_valid + POLAR_SEAM_FILL_ROWS + 1)
+    seam_mask[north0:north1, :] = True
+    seam_mask[south0:south1, :] = True
+
+    shifts = (
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),            (0, 1),
+        (1, -1),  (1, 0),  (1, 1),
+    )
+
+    for _ in range(POLAR_HOLE_FILL_PASSES):
+        missing = seam_mask & (filled <= 0.0)
+        if not np.any(missing):
+            break
+
+        neighbour_sum = np.zeros_like(filled, dtype=np.float32)
+        neighbour_count = np.zeros_like(filled, dtype=np.uint8)
+        for dy, dx in shifts:
+            neighbour = np.roll(filled, shift=(dy, dx), axis=(0, 1))
+            neighbour_valid = neighbour > 0.0
+            neighbour_sum += np.where(neighbour_valid, neighbour, 0.0)
+            neighbour_count += neighbour_valid.astype(np.uint8)
+
+        can_fill = missing & (neighbour_count >= POLAR_HOLE_MIN_NEIGHBORS)
+        if not np.any(can_fill):
+            break
+
+        filled[can_fill] = (
+            neighbour_sum[can_fill] / neighbour_count[can_fill].astype(np.float32)
+        )
+
+    return filled
+
+
 def _to_equirectangular(
     source: np.ndarray,
     bounds: tuple[float, float, float, float],
@@ -237,10 +288,8 @@ def _to_equirectangular(
     frac = (row - row0).astype(np.float32)[:, None]
 
     result = horizontal[row0] * (1.0 - frac) + horizontal[row1] * frac
-
-    # Do not leave +/-72.7..90 degree caps empty. Mirror the last available
-    # latitude band back toward each pole, as requested for the visual test.
     result = _mirror_polar_caps(result, valid_rows)
+    result = _fill_polar_seam_holes(result, valid_rows)
 
     if lon_min > -179.99 or lon_max < 179.99:
         target_lon = np.linspace(-180.0, 180.0, width, endpoint=False)
@@ -256,12 +305,7 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
 
 
 def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Build a denser, brighter IR-only cloud layer for visual validation.
-
-    Zero remains the no-data sentinel for genuine missing/invalid pixels. The
-    polar caps are no longer zero because _to_equirectangular mirrors valid LW
-    data into them before this function is called.
-    """
+    """Build the IR-only cloud layer for visual validation."""
     valid = lw > 0.0
 
     alpha = _smoothstep(CLOUD_ALPHA_START, CLOUD_ALPHA_FULL, lw)
@@ -285,19 +329,14 @@ def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         1.0,
     )
 
-    # The prior test RGB averaged far darker than live-cloud-maps. Raise the
-    # cloud base luminance while retaining IR detail, so the layer reads as
-    # white/bright-grey cloud rather than a dark mask when alpha is composited.
+    # Keep the clouds bright but step back from the over-white previous pass.
     brightness = (
-        175.0
-        + 55.0 * np.power(alpha, 0.42)
-        + 30.0 * np.sqrt(detail)
+        168.0
+        + 52.0 * np.power(alpha, 0.45)
+        + 28.0 * np.sqrt(detail)
     )
     brightness = np.clip(brightness, 0.0, 255.0)
     rgb = np.repeat(brightness[:, :, None], 3, axis=2)
-
-    # Genuine no-data pixels stay transparent. White RGB prevents black fringe
-    # contamination when a viewer inspects individual channels.
     rgb[~valid] = 255.0
 
     rgba = np.concatenate(
@@ -323,7 +362,8 @@ def _print_alpha_stats(label: str, alpha: np.ndarray) -> None:
         f">0={pct_over(0):.2f}%, "
         f">64={pct_over(64):.2f}%, "
         f">128={pct_over(128):.2f}%, "
-        f">192={pct_over(192):.2f}%"
+        f">192={pct_over(192):.2f}%, "
+        f"=255={float(np.count_nonzero(alpha_u8 == 255)) / total * 100.0:.2f}%"
     )
 
 
@@ -342,13 +382,7 @@ def _load_gray(path: Path, size: tuple[int, int]) -> np.ndarray:
 
 
 def _estimate_ocean_specular_mask(output_dir: Path) -> np.ndarray:
-    """Approximate a static ocean mask from the existing production pair.
-
-    live-cloud-maps specular already contains cloud occlusion. The two production
-    generations are used to estimate the underlying ocean reflection mask, then
-    the GMGSI-derived cloud alpha is applied. This is intentionally test-only;
-    a dedicated static ocean mask should replace it if GMGSI becomes production.
-    """
+    """Approximate a static ocean mask from the existing production pair."""
     size = (OUTPUT_WIDTH, OUTPUT_HEIGHT)
     samples: list[tuple[np.ndarray, np.ndarray]] = []
     for suffix in ("previous", "current"):
@@ -437,8 +471,6 @@ def generate(output_dir: Path) -> None:
         specular = _specular_from_cloud(base_ocean, cloud_alpha)
         prepared[label] = (rgba, specular)
 
-    # Stage all four files and only replace the public test set once the full
-    # previous/current cloud+specular batch has completed.
     staged: list[tuple[Path, Path]] = []
     try:
         for label in labels:
