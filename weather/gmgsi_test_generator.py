@@ -4,6 +4,7 @@ import argparse
 import os
 import tempfile
 import xml.etree.ElementTree as ET
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -25,23 +26,19 @@ DEFAULT_LAT_MIN = -72.7368
 DEFAULT_LON_MIN = -179.9284
 DEFAULT_LON_MAX = 179.9996
 
-# GMGSI LW values are encoded 0..255 brightness-temperature values.
-# The previous pass became too dense after polar mirroring, so this curve
-# backs off the saturation while retaining thin/mid-level cloud detail.
-CLOUD_ALPHA_START = 68.0
-CLOUD_ALPHA_FULL = 225.0
-CLOUD_ALPHA_GAMMA = 0.44
-CLOUD_ALPHA_GAIN = 1.08
+# IR -> cloud opacity seed curve. The final alpha is histogram-matched to the
+# currently published live-cloud-maps cloud texture, so these values preserve
+# ranking/detail instead of trying to hand-tune the final density.
+CLOUD_ALPHA_START = 45.0
+CLOUD_ALPHA_FULL = 245.0
+CLOUD_ALPHA_GAMMA = 0.80
 CLOUD_ALPHA_DILATE_SIZE = 3
-CLOUD_ALPHA_BLUR_RADIUS = 0.70
+CLOUD_ALPHA_BLUR_RADIUS = 0.60
 
-# The mirrored caps are kept, but small no-data wedges around the fold seam
-# are locally reconstructed from valid neighbours. This is intentionally
-# limited to the seam region so ordinary clear/no-data handling elsewhere is
-# not changed by the experimental polar treatment.
-POLAR_SEAM_FILL_ROWS = 48
-POLAR_HOLE_FILL_PASSES = 5
-POLAR_HOLE_MIN_NEIGHBORS = 3
+# A hard safety limit: zero is the GMGSI no-data sentinel after DQF masking.
+# Small/medium missing wedges are filled from surrounding valid LW values, but
+# a badly corrupted source with a very large missing fraction is left alone.
+MISSING_FILL_MAX_FRACTION = 0.20
 
 PRODUCTION_WEATHER_BASE = "https://akinomizuki.github.io/SolarImeg/weather"
 TEST_FILENAMES = (
@@ -133,11 +130,14 @@ def _download_netcdf(key: str, timeout: int = 120) -> Path:
     return path
 
 
-def _read_gmgsi_plane(path: Path) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+def _read_gmgsi_plane(
+    path: Path,
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
     with Dataset(path, "r") as ds:
         raw_data = ds.variables["data"][:]
         if np.ma.isMaskedArray(raw_data):
             raw_data = np.ma.filled(raw_data, np.nan)
+
         data = np.asarray(raw_data, dtype=np.float32)
         data = np.squeeze(data)
         if data.ndim != 2:
@@ -167,7 +167,7 @@ def _mercator_y(latitude_deg: np.ndarray | float) -> np.ndarray:
 
 
 def _mirror_polar_caps(result: np.ndarray, valid_rows: np.ndarray) -> np.ndarray:
-    """Fill unavailable GMGSI polar caps by literal latitude mirroring."""
+    """Mirror the nearest valid latitude band into both unavailable polar caps."""
     filled = np.array(result, copy=True)
     valid_indices = np.flatnonzero(valid_rows)
     if valid_indices.size == 0:
@@ -177,8 +177,7 @@ def _mirror_polar_caps(result: np.ndarray, valid_rows: np.ndarray) -> np.ndarray
     last_valid = int(valid_indices[-1])
     height = filled.shape[0]
 
-    north_count = first_valid
-    if north_count > 0:
+    if first_valid > 0:
         north_source = np.arange(
             2 * first_valid - 1,
             first_valid - 1,
@@ -203,59 +202,94 @@ def _mirror_polar_caps(result: np.ndarray, valid_rows: np.ndarray) -> np.ndarray
     return filled
 
 
-def _fill_polar_seam_holes(result: np.ndarray, valid_rows: np.ndarray) -> np.ndarray:
-    """Fill only small zero-valued holes close to the two polar fold seams.
+def _fill_missing_lw_regions(result: np.ndarray) -> np.ndarray:
+    """Inpaint GMGSI no-data (0) wedges from surrounding valid LW samples.
 
-    GMGSI uses zero as the no-data sentinel after DQF masking. Mirroring can
-    turn small edge gaps into visible triangular wedges. Repeated neighbour
-    averaging closes those local wedges while leaving the rest of the global
-    field untouched. Longitude rolls naturally, which is correct for a 360°
-    equirectangular texture.
+    The earlier seam-only repair did not touch geometric gaps that occur away
+    from the +/-72.7 degree fold. This fill operates on the LW no-data sentinel
+    itself, before cloud thresholding, so clear warm land/ocean pixels are not
+    mistaken for holes merely because their eventual cloud alpha is low.
+
+    Longitude wraps, while latitude stops at the poles. A multi-source breadth-
+    first fill propagates the local mean inward and therefore handles the large
+    triangular mosaic gaps as well as one/two-pixel seams.
     """
-    filled = np.array(result, copy=True)
-    valid_indices = np.flatnonzero(valid_rows)
-    if valid_indices.size == 0:
+    filled = np.array(result, copy=True, dtype=np.float32)
+    missing = filled <= 0.0
+    missing_count = int(np.count_nonzero(missing))
+    if missing_count == 0:
         return filled
 
-    first_valid = int(valid_indices[0])
-    last_valid = int(valid_indices[-1])
-    height = filled.shape[0]
+    fraction = missing_count / float(filled.size)
+    if fraction > MISSING_FILL_MAX_FRACTION:
+        print(
+            "GMGSI test: skip no-data inpaint because missing fraction "
+            f"{fraction * 100.0:.2f}% exceeds safety limit"
+        )
+        return filled
 
-    seam_mask = np.zeros(filled.shape, dtype=bool)
-    north0 = max(0, first_valid - POLAR_SEAM_FILL_ROWS)
-    north1 = min(height, first_valid + POLAR_SEAM_FILL_ROWS + 1)
-    south0 = max(0, last_valid - POLAR_SEAM_FILL_ROWS)
-    south1 = min(height, last_valid + POLAR_SEAM_FILL_ROWS + 1)
-    seam_mask[north0:north1, :] = True
-    seam_mask[south0:south1, :] = True
-
+    height, width = filled.shape
+    queued = np.zeros_like(missing, dtype=bool)
+    queue: deque[tuple[int, int]] = deque()
     shifts = (
         (-1, -1), (-1, 0), (-1, 1),
         (0, -1),            (0, 1),
         (1, -1),  (1, 0),  (1, 1),
     )
 
-    for _ in range(POLAR_HOLE_FILL_PASSES):
-        missing = seam_mask & (filled <= 0.0)
-        if not np.any(missing):
-            break
-
-        neighbour_sum = np.zeros_like(filled, dtype=np.float32)
-        neighbour_count = np.zeros_like(filled, dtype=np.uint8)
+    # Seed the queue only with missing pixels that already touch valid data.
+    for y, x in np.argwhere(missing):
+        yi = int(y)
+        xi = int(x)
+        touches_valid = False
         for dy, dx in shifts:
-            neighbour = np.roll(filled, shift=(dy, dx), axis=(0, 1))
-            neighbour_valid = neighbour > 0.0
-            neighbour_sum += np.where(neighbour_valid, neighbour, 0.0)
-            neighbour_count += neighbour_valid.astype(np.uint8)
+            ny = yi + dy
+            if ny < 0 or ny >= height:
+                continue
+            nx = (xi + dx) % width
+            if filled[ny, nx] > 0.0:
+                touches_valid = True
+                break
+        if touches_valid:
+            queue.append((yi, xi))
+            queued[yi, xi] = True
 
-        can_fill = missing & (neighbour_count >= POLAR_HOLE_MIN_NEIGHBORS)
-        if not np.any(can_fill):
-            break
+    filled_count = 0
+    while queue:
+        y, x = queue.popleft()
+        if filled[y, x] > 0.0:
+            continue
 
-        filled[can_fill] = (
-            neighbour_sum[can_fill] / neighbour_count[can_fill].astype(np.float32)
-        )
+        values: list[float] = []
+        for dy, dx in shifts:
+            ny = y + dy
+            if ny < 0 or ny >= height:
+                continue
+            nx = (x + dx) % width
+            value = float(filled[ny, nx])
+            if value > 0.0:
+                values.append(value)
 
+        if not values:
+            continue
+
+        filled[y, x] = float(sum(values) / len(values))
+        filled_count += 1
+
+        for dy, dx in shifts:
+            ny = y + dy
+            if ny < 0 or ny >= height:
+                continue
+            nx = (x + dx) % width
+            if filled[ny, nx] <= 0.0 and not queued[ny, nx]:
+                queue.append((ny, nx))
+                queued[ny, nx] = True
+
+    remaining = int(np.count_nonzero(filled <= 0.0))
+    print(
+        "GMGSI test no-data inpaint: "
+        f"before={missing_count}, filled={filled_count}, remaining={remaining}"
+    )
     return filled
 
 
@@ -289,13 +323,14 @@ def _to_equirectangular(
 
     result = horizontal[row0] * (1.0 - frac) + horizontal[row1] * frac
     result = _mirror_polar_caps(result, valid_rows)
-    result = _fill_polar_seam_holes(result, valid_rows)
 
     if lon_min > -179.99 or lon_max < 179.99:
         target_lon = np.linspace(-180.0, 180.0, width, endpoint=False)
         lon_valid = (target_lon >= lon_min) & (target_lon <= lon_max)
         result[:, ~lon_valid] = 0.0
 
+    # Fill geometric no-data wedges after reprojection and polar mirroring.
+    result = _fill_missing_lw_regions(result)
     return result
 
 
@@ -304,67 +339,146 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
     return t * t * (3.0 - 2.0 * t)
 
 
-def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Build the IR-only cloud layer for visual validation."""
+def _histogram_match_u8(
+    source_u8: np.ndarray,
+    reference_u8: np.ndarray,
+    source_mask: np.ndarray | None = None,
+    reference_mask: np.ndarray | None = None,
+) -> np.ndarray:
+    """Histogram-match an 8-bit scalar field while preserving spatial ranking."""
+    source = np.asarray(source_u8, dtype=np.uint8)
+    reference = np.asarray(reference_u8, dtype=np.uint8)
+
+    if source_mask is None:
+        source_mask = np.ones(source.shape, dtype=bool)
+    if reference_mask is None:
+        reference_mask = np.ones(reference.shape, dtype=bool)
+
+    src_values = source[source_mask]
+    ref_values = reference[reference_mask]
+    if src_values.size == 0 or ref_values.size == 0:
+        return source.copy()
+
+    src_unique, src_counts = np.unique(src_values, return_counts=True)
+    ref_unique, ref_counts = np.unique(ref_values, return_counts=True)
+
+    src_quantiles = np.cumsum(src_counts).astype(np.float64)
+    src_quantiles /= src_quantiles[-1]
+    ref_quantiles = np.cumsum(ref_counts).astype(np.float64)
+    ref_quantiles /= ref_quantiles[-1]
+
+    matched_values = np.interp(src_quantiles, ref_quantiles, ref_unique)
+    lookup = np.arange(256, dtype=np.float32)
+    lookup[src_unique] = matched_values.astype(np.float32)
+
+    # Fill unused source bins by interpolation between the bins that occurred.
+    if src_unique.size > 1:
+        lookup = np.interp(
+            np.arange(256, dtype=np.float32),
+            src_unique.astype(np.float32),
+            matched_values.astype(np.float32),
+        ).astype(np.float32)
+    elif src_unique.size == 1:
+        lookup.fill(float(matched_values[0]))
+
+    result = source.copy()
+    result[source_mask] = np.clip(
+        np.rint(lookup[source[source_mask]]), 0, 255
+    ).astype(np.uint8)
+    return result
+
+
+def _cloud_rgba_from_lw(
+    lw: np.ndarray,
+    reference_rgba: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build GMGSI clouds and calibrate density/tone to production cloud texture."""
     valid = lw > 0.0
 
-    alpha = _smoothstep(CLOUD_ALPHA_START, CLOUD_ALPHA_FULL, lw)
-    alpha = np.power(alpha, CLOUD_ALPHA_GAMMA)
-    alpha = np.clip(alpha * CLOUD_ALPHA_GAIN, 0.0, 1.0)
-    alpha[~valid] = 0.0
+    # Build a smooth monotonic opacity seed from IR, then let the reference
+    # texture define the final global opacity distribution.
+    alpha_seed = _smoothstep(CLOUD_ALPHA_START, CLOUD_ALPHA_FULL, lw)
+    alpha_seed = np.power(alpha_seed, CLOUD_ALPHA_GAMMA)
+    alpha_seed[~valid] = 0.0
 
     alpha_img = Image.fromarray(
-        np.clip(alpha * 255.0, 0, 255).astype(np.uint8), mode="L"
+        np.clip(alpha_seed * 255.0, 0, 255).astype(np.uint8), mode="L"
     )
     alpha_img = alpha_img.filter(ImageFilter.MaxFilter(size=CLOUD_ALPHA_DILATE_SIZE))
     alpha_img = alpha_img.filter(
         ImageFilter.GaussianBlur(radius=CLOUD_ALPHA_BLUR_RADIUS)
     )
-    alpha = np.asarray(alpha_img, dtype=np.float32) / 255.0
-    alpha[~valid] = 0.0
+    alpha_u8 = np.asarray(alpha_img, dtype=np.uint8)
 
-    detail = np.clip(
-        (lw - CLOUD_ALPHA_START) / (CLOUD_ALPHA_FULL - CLOUD_ALPHA_START),
-        0.0,
-        1.0,
+    ref_alpha_u8 = np.clip(reference_rgba[:, :, 3] * 255.0, 0, 255).astype(np.uint8)
+    alpha_u8 = _histogram_match_u8(
+        alpha_u8,
+        ref_alpha_u8,
+        source_mask=valid,
+        reference_mask=np.ones(ref_alpha_u8.shape, dtype=bool),
     )
+    alpha_u8[~valid] = 0
+    alpha = alpha_u8.astype(np.float32) / 255.0
 
-    # Keep the clouds bright but step back from the over-white previous pass.
-    brightness = (
-        168.0
-        + 52.0 * np.power(alpha, 0.45)
-        + 28.0 * np.sqrt(detail)
+    # IR value itself is a useful monotonic cloud-top-detail signal. Histogram
+    # matching its luminance to live-cloud-maps restores the broad dark-to-white
+    # tonal range that the previous hand-tuned 168..248 curve could not match.
+    luma_seed_u8 = np.clip(lw, 0, 255).astype(np.uint8)
+
+    ref_rgb = np.clip(reference_rgba[:, :, :3] * 255.0, 0, 255)
+    ref_luma_u8 = np.clip(
+        0.2126 * ref_rgb[:, :, 0]
+        + 0.7152 * ref_rgb[:, :, 1]
+        + 0.0722 * ref_rgb[:, :, 2],
+        0,
+        255,
+    ).astype(np.uint8)
+
+    luma_u8 = _histogram_match_u8(
+        luma_seed_u8,
+        ref_luma_u8,
+        source_mask=valid,
+        reference_mask=ref_alpha_u8 > 0,
     )
-    brightness = np.clip(brightness, 0.0, 255.0)
-    rgb = np.repeat(brightness[:, :, None], 3, axis=2)
-    rgb[~valid] = 255.0
+    luma_u8[~valid] = 255
 
-    rgba = np.concatenate(
-        [
-            rgb.astype(np.uint8),
-            np.clip(alpha * 255.0, 0, 255).astype(np.uint8)[:, :, None],
-        ],
-        axis=2,
-    )
-    return rgba, alpha
+    rgb = np.repeat(luma_u8[:, :, None], 3, axis=2)
+    rgba = np.concatenate([rgb, alpha_u8[:, :, None]], axis=2)
+    return rgba.astype(np.uint8), alpha
 
 
-def _print_alpha_stats(label: str, alpha: np.ndarray) -> None:
+def _print_alpha_stats(
+    label: str,
+    alpha: np.ndarray,
+    reference_rgba: np.ndarray | None = None,
+) -> None:
     alpha_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
     total = float(alpha_u8.size)
 
-    def pct_over(value: int) -> float:
-        return float(np.count_nonzero(alpha_u8 > value)) / total * 100.0
+    def pct_over(values: np.ndarray, value: int) -> float:
+        return float(np.count_nonzero(values > value)) / float(values.size) * 100.0
 
     print(
         f"GMGSI test {label} alpha: "
         f"mean={float(alpha_u8.mean()):.2f}/255, "
-        f">0={pct_over(0):.2f}%, "
-        f">64={pct_over(64):.2f}%, "
-        f">128={pct_over(128):.2f}%, "
-        f">192={pct_over(192):.2f}%, "
+        f">0={pct_over(alpha_u8, 0):.2f}%, "
+        f">64={pct_over(alpha_u8, 64):.2f}%, "
+        f">128={pct_over(alpha_u8, 128):.2f}%, "
+        f">192={pct_over(alpha_u8, 192):.2f}%, "
         f"=255={float(np.count_nonzero(alpha_u8 == 255)) / total * 100.0:.2f}%"
     )
+
+    if reference_rgba is not None:
+        ref = np.clip(reference_rgba[:, :, 3] * 255.0, 0, 255).astype(np.uint8)
+        print(
+            f"GMGSI reference {label} alpha: "
+            f"mean={float(ref.mean()):.2f}/255, "
+            f">0={pct_over(ref, 0):.2f}%, "
+            f">64={pct_over(ref, 64):.2f}%, "
+            f">128={pct_over(ref, 128):.2f}%, "
+            f">192={pct_over(ref, 192):.2f}%, "
+            f"=255={float(np.count_nonzero(ref == 255)) / float(ref.size) * 100.0:.2f}%"
+        )
 
 
 def _load_rgba(path: Path, size: tuple[int, int]) -> np.ndarray:
@@ -385,6 +499,7 @@ def _estimate_ocean_specular_mask(output_dir: Path) -> np.ndarray:
     """Approximate a static ocean mask from the existing production pair."""
     size = (OUTPUT_WIDTH, OUTPUT_HEIGHT)
     samples: list[tuple[np.ndarray, np.ndarray]] = []
+
     for suffix in ("previous", "current"):
         cloud_path = output_dir / f"cloud_{suffix}.png"
         spec_path = output_dir / f"specular_{suffix}.jpg"
@@ -455,10 +570,17 @@ def generate(output_dir: Path) -> None:
     observations = _find_latest_two_keys()
     labels = ("previous", "current")
     base_ocean = _estimate_ocean_specular_mask(output_dir)
+    size = (OUTPUT_WIDTH, OUTPUT_HEIGHT)
 
     prepared: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for label, (slot, key) in zip(labels, observations):
         print(f"GMGSI test {label}: {slot.isoformat()}  s3://noaa-gmgsi-pds/{key}")
+
+        reference_path = output_dir / f"cloud_{label}.png"
+        if not reference_path.exists():
+            raise RuntimeError(f"Production reference cloud is missing: {reference_path}")
+        reference_rgba = _load_rgba(reference_path, size)
+
         nc_path = _download_netcdf(key)
         try:
             raw, bounds = _read_gmgsi_plane(nc_path)
@@ -466,11 +588,13 @@ def generate(output_dir: Path) -> None:
             nc_path.unlink(missing_ok=True)
 
         lw = _to_equirectangular(raw, bounds)
-        rgba, cloud_alpha = _cloud_rgba_from_lw(lw)
-        _print_alpha_stats(label, cloud_alpha)
+        rgba, cloud_alpha = _cloud_rgba_from_lw(lw, reference_rgba)
+        _print_alpha_stats(label, cloud_alpha, reference_rgba)
+
         specular = _specular_from_cloud(base_ocean, cloud_alpha)
         prepared[label] = (rgba, specular)
 
+    # Stage all four files and publish only after the full test batch succeeds.
     staged: list[tuple[Path, Path]] = []
     try:
         for label in labels:
@@ -481,10 +605,13 @@ def generate(output_dir: Path) -> None:
             spec_stage = output_dir / f".specular_{label}_test.stage.jpg"
 
             Image.fromarray(rgba, mode="RGBA").save(
-                cloud_stage, format="PNG", optimize=True
+                cloud_stage,
+                format="PNG",
+                optimize=True,
             )
             Image.fromarray(
-                (specular * 255.0).astype(np.uint8), mode="L"
+                (specular * 255.0).astype(np.uint8),
+                mode="L",
             ).convert("RGB").save(
                 spec_stage,
                 format="JPEG",
