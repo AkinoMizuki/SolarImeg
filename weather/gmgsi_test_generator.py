@@ -26,9 +26,15 @@ DEFAULT_LON_MIN = -179.9284
 DEFAULT_LON_MAX = 179.9996
 
 # GMGSI LW values are encoded 0..255 brightness temperature values.
-# Colder/high cloud tops have larger encoded values; ~110 is roughly 270 K.
-CLOUD_THRESHOLD = 110.0
-CLOUD_MAX = 255.0
+# Colder/high cloud tops have larger encoded values. The first test used
+# 110..255 and was visually too transparent, so the test curve now starts
+# earlier and raises mid/low alpha while keeping the strongest cloud opaque.
+CLOUD_ALPHA_START = 70.0
+CLOUD_ALPHA_FULL = 220.0
+CLOUD_ALPHA_GAMMA = 0.42
+CLOUD_ALPHA_GAIN = 1.15
+CLOUD_ALPHA_DILATE_SIZE = 3
+CLOUD_ALPHA_BLUR_RADIUS = 0.7
 
 PRODUCTION_WEATHER_BASE = "https://akinomizuki.github.io/SolarImeg/weather"
 TEST_FILENAMES = (
@@ -198,22 +204,72 @@ def _smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
 
 
 def _cloud_rgba_from_lw(lw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    # Temporary IR-only cloud extraction for visual validation.
-    alpha = _smoothstep(CLOUD_THRESHOLD, CLOUD_MAX, lw)
-    alpha = np.power(alpha, 0.72)
+    """Build a denser IR-only cloud layer for visual validation.
 
-    detail = np.clip((lw - CLOUD_THRESHOLD) / (CLOUD_MAX - CLOUD_THRESHOLD), 0.0, 1.0)
-    brightness = 170.0 + 85.0 * np.sqrt(detail)
+    Zero is the no-data sentinel produced by the reproject/decode path. Keep
+    those pixels fully transparent even after the small morphology pass so the
+    unavailable polar area and bad DQF pixels never turn into synthetic cloud.
+    """
+    valid = lw > 0.0
+
+    alpha = _smoothstep(CLOUD_ALPHA_START, CLOUD_ALPHA_FULL, lw)
+    alpha = np.power(alpha, CLOUD_ALPHA_GAMMA)
+    alpha = np.clip(alpha * CLOUD_ALPHA_GAIN, 0.0, 1.0)
+    alpha[~valid] = 0.0
+
+    alpha_img = Image.fromarray(
+        np.clip(alpha * 255.0, 0, 255).astype(np.uint8), mode="L"
+    )
+    alpha_img = alpha_img.filter(ImageFilter.MaxFilter(size=CLOUD_ALPHA_DILATE_SIZE))
+    alpha_img = alpha_img.filter(
+        ImageFilter.GaussianBlur(radius=CLOUD_ALPHA_BLUR_RADIUS)
+    )
+    alpha = np.asarray(alpha_img, dtype=np.float32) / 255.0
+    alpha[~valid] = 0.0
+
+    detail = np.clip(
+        (lw - CLOUD_ALPHA_START) / (CLOUD_ALPHA_FULL - CLOUD_ALPHA_START),
+        0.0,
+        1.0,
+    )
+    brightness = (
+        150.0
+        + 70.0 * np.power(alpha, 0.45)
+        + 35.0 * np.sqrt(detail)
+    )
+    brightness = np.clip(brightness, 0.0, 255.0)
     rgb = np.repeat(brightness[:, :, None], 3, axis=2)
+
+    # Give fully transparent/no-data pixels neutral white RGB. Alpha remains
+    # zero, so this does not fabricate cloud in Unity but avoids black RGB data
+    # around the unavailable polar region when channels are inspected directly.
+    rgb[~valid] = 255.0
 
     rgba = np.concatenate(
         [
-            np.clip(rgb, 0, 255).astype(np.uint8),
+            rgb.astype(np.uint8),
             np.clip(alpha * 255.0, 0, 255).astype(np.uint8)[:, :, None],
         ],
         axis=2,
     )
     return rgba, alpha
+
+
+def _print_alpha_stats(label: str, alpha: np.ndarray) -> None:
+    alpha_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+    total = float(alpha_u8.size)
+
+    def pct_over(value: int) -> float:
+        return float(np.count_nonzero(alpha_u8 > value)) / total * 100.0
+
+    print(
+        f"GMGSI test {label} alpha: "
+        f"mean={float(alpha_u8.mean()):.2f}/255, "
+        f">0={pct_over(0):.2f}%, "
+        f">64={pct_over(64):.2f}%, "
+        f">128={pct_over(128):.2f}%, "
+        f">192={pct_over(192):.2f}%"
+    )
 
 
 def _load_rgba(path: Path, size: tuple[int, int]) -> np.ndarray:
@@ -322,6 +378,7 @@ def generate(output_dir: Path) -> None:
 
         lw = _to_equirectangular(raw, bounds)
         rgba, cloud_alpha = _cloud_rgba_from_lw(lw)
+        _print_alpha_stats(label, cloud_alpha)
         specular = _specular_from_cloud(base_ocean, cloud_alpha)
         prepared[label] = (rgba, specular)
 
