@@ -32,7 +32,7 @@ Cloud / Specular は NOAA/NESDIS Global Mosaic of Geostationary Satellite Imager
 | 名古屋市科学館 太陽像 | 名古屋市科学館 | CC BY 2.1 JP | **必須** | `Solar imagery: 名古屋市科学館` |
 | 3時間更新 Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
 | 3時間更新 Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
-| Earth Weather Cloud | NOAA / NESDIS GMGSI via NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA 公開データ | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
+| Earth Weather Cloud | NOAA / NESDIS GMGSI via NOAA Open Data Dissemination (NODD) | NOAA 公開データ | **推奨**（NOAAは出典表示を要請） | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
 | Earth Weather Specular Base | `live-cloud-maps` / Matt Eason の static monthly `specular-base` | CC0 1.0 Universal | 作者クレジットは任意 | `Specular base: live-cloud-maps by Matt Eason.` |
 | Earth Weather Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
 
@@ -215,7 +215,7 @@ Earth Weather は Cloud / Specular / Wind をまとめて 1 つの地球気象�
 
 | 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
 | --- | --- | --- | --- | --- |
-| Cloud | NOAA / NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA 公開データ | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
+| Cloud | NOAA / NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), NOAA Open Data Dissemination (NODD) | NOAA 公開データ | **推奨**（NOAAは出典表示を要請） | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
 | Specular Base | `live-cloud-maps` / Matt Eason の static monthly `specular-base` | CC0 1.0 Universal | 作者クレジットは任意 | `Specular base: live-cloud-maps by Matt Eason.` |
 | Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
 
@@ -486,7 +486,7 @@ Filter Mode           = Bilinear
 ```text
 sRGB (Color Texture) = OFF
 Compression          = None 推奨
-Filter Mode          = Bilinear
+Filter Mode           = Bilinear
 Wrap U               = Repeat
 Wrap V               = Clamp
 ```
