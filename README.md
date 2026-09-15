@@ -9,6 +9,19 @@ Earth Weather は毎時 20 分に更新チェックします。
 
 ---
 
+## SolarImeg 本体のライセンス
+
+このリポジトリ `AkinoMizuki/SolarImeg` 自体には、現時点で GitHub が認識する `LICENSE` が設定されていません。
+
+- リポジトリ本体のライセンス: **未設定**
+- MIT / Apache-2.0 / GPL 等: **現時点では未適用**
+- GitHub 上で公開されていること自体は、ソースコードを自由に再利用・再配布できるオープンソースライセンスの付与を意味しません。
+- 外部から取得している画像・データには、それぞれ提供元のライセンス・利用条件・クレジット条件が別途適用されます。
+
+外部データの条件は、以下の各セクションにある「権利形態 / ライセンス」「クレジット要否」「主な条件」を参照してください。
+
+---
+
 # SolarImeg(SOHO)
 
 https://akinomizuki.github.io/SolarImeg/latest.jpg
@@ -24,12 +37,40 @@ https://akinomizuki.github.io/SolarImeg/LASCO_C2.jpg
 SOHO のリアルタイム太陽画像を次の公式配信元から取得しています。
 
 - https://soho.nascom.nasa.gov/data/realtime/
+- SOHO Copyright Notice: https://soho.nascom.nasa.gov/data/summary/copyright.html
 
 SOHO は ESA と NASA の国際協力プロジェクトです。
 
-表示用クレジット例:
+### 権利形態 / ライセンス
+
+SOHO のリアルタイム画像は MIT や CC0 といったソフトウェア / オープンデータライセンスではなく、**SOHO / ESA / NASA の画像利用条件**に従います。
+
+SOHO の Copyright Notice では、公共教育および非商用利用について明示的な事前許可は不要とされ、出典表示が求められています。
+また ESA の画像利用条件では ESA が権利を持つ画像についてクレジット表示が必要で、商用利用には別途許諾が必要となる場合があります。
+
+### クレジット要否
+
+**要表示扱い**とします。
+
+SOHO 公式はクレジットを「requested」としており、次の表記を案内しています。
+
+> Courtesy of SOHO/[instrument] consortium. SOHO is a project of international cooperation between ESA and NASA.
+
+短縮表記として次も公式に認められています。
+
+> SOHO (ESA & NASA)
+
+SolarImeg では分かりやすさのため、表示用クレジットを次とします。
 
 > Solar imagery: SOHO (ESA & NASA)
+
+### 主な条件
+
+- 公共教育・非商用利用は、SOHO Copyright Notice 上、明示的な事前許可なしで利用可能。
+- SOHO / ESA / NASA の出典を表示する。
+- ESA / NASA が製品・サービス等を支持していると誤認させる表示をしない。
+- ESA が権利を持つ画像の商用利用は、用途によって別途許諾が必要。
+- NASA / ESA の名称・ロゴ等は画像利用とは別の商標・識別標章の条件が適用される。
 
 ---
 
@@ -43,13 +84,38 @@ https://akinomizuki.github.io/SolarImeg/now_ha.jpg
 
 `now_wh.jpg` / `now_ha.jpg` は名古屋市科学館の太陽観測ページを取得元としています。
 
-- http://www.ncsm.city.nagoya.jp/astro/sun/
+- 太陽観測ページ: http://www.ncsm.city.nagoya.jp/astro/sun/
+- 利用条件: https://www.ncsm.city.nagoya.jp/study/astro/data/open_data.html
+- CC BY 2.1 JP: https://creativecommons.org/licenses/by/2.1/jp/
 
-利用・転載時は名古屋市科学館側の利用条件を確認してください。
+太陽観測ページには CC BY の表示があり、名古屋市科学館の天文情報オープンデータ方針では、再利用可能なデータ等を CC BY として公開し、表示名を「名古屋市科学館」とするよう案内しています。
+
+### 権利形態 / ライセンス
+
+**Creative Commons Attribution 2.1 Japan（CC BY 2.1 JP / 表示 2.1 日本）**
+
+CC BY 2.1 JP の条件を守る限り、複製・再配布・改変が可能で、営利目的の利用もライセンス上は許可されています。
+
+### クレジット要否
+
+**必須です。**
+
+クレジット表示名:
+
+> 名古屋市科学館
 
 表示用クレジット例:
 
-> Solar imagery: Nagoya City Science Museum
+> Solar imagery: 名古屋市科学館
+
+### 主な条件
+
+- 適切なクレジット表示が必要。
+- ライセンスへのリンクを提示する。
+- 改変した場合は、その旨を示す。
+- 名古屋市科学館の利用方針では、Web 掲載時は Creative Commons 表記に従う。
+- マスコミ・出版等での利用は、科学館学芸課天文係への連絡を求めている。
+- 営利目的の利用については、名古屋市科学館へ相談するよう案内されている。
 
 ---
 
@@ -66,21 +132,35 @@ https://akinomizuki.github.io/SolarImeg/specular.jpg
 - Project: https://github.com/matteason/live-cloud-maps
 - Cloud source: https://clouds.matteason.co.uk/images/8192x4096/clouds-alpha.png
 - Specular source: https://clouds.matteason.co.uk/images/8192x4096/specular.jpg
-- Upstream licence: CC0 1.0 Universal（`live-cloud-maps` のコード・画像）
+- EUMETSAT Data Licensing: https://www.eumetsat.int/eumetsat-data-licensing
 
-`live-cloud-maps` の雲データの元データは EUMETSAT です。EUMETSAT のデータ利用条件に従い、Cloud / Specular を利用・再配布する場合は次の attribution を表示してください。
+### 権利形態 / ライセンス
+
+`live-cloud-maps` のコードと同プロジェクトが公開する画像は **CC0 1.0 Universal** とされています。
+
+CC0 は著作権等を可能な限り放棄してパブリックドメイン相当として利用できるようにする仕組みで、CC0 自体はクレジット表示を要求しません。
+
+ただし、`live-cloud-maps` の雲画像の元データには **EUMETSAT データ**が含まれます。EUMETSAT のデータ利用条件は CC0 とは別に適用され、EUMETSAT データを元にした画像・派生物を表示・公開する場合には attribution が必要です。
+
+### クレジット要否
+
+- `live-cloud-maps` / Matt Eason 氏: **CC0 上は必須ではない**。SolarImeg ではデータ生成サービスの提供元として任意でクレジットする。
+- EUMETSAT: **必須**。
+
+EUMETSAT 必須表記:
 
 > Contains modified EUMETSAT data
-
-EUMETSAT Data Policy / Licensing:
-
-https://www.eumetsat.int/eumetsat-data-licensing
-
-`live-cloud-maps` 作者 Matt Eason 氏への attribution は upstream の CC0 ライセンス上必須ではありませんが、SolarImeg ではデータ生成サービスの提供元としてクレジットします。
 
 表示用クレジット例:
 
 > Cloud / specular imagery: live-cloud-maps by Matt Eason. Contains modified EUMETSAT data.
+
+### 主な条件
+
+- `live-cloud-maps` の CC0 部分は、許可申請・著作者表示なしでも利用・複製・改変・再配布可能。
+- EUMETSAT データ由来部分は EUMETSAT の該当データライセンスに従う。
+- EUMETSAT データを元にした画像・変換物を表示・公開する場合は EUMETSAT attribution を付ける。
+- CC0 であることを理由に、元データである EUMETSAT の条件まで消えるわけではない。
 
 ---
 
@@ -129,20 +209,31 @@ cloud_current.png     <-> specular_current.jpg
 
 ### Cloud / Specular のデータ元・クレジット
 
-Earth Weather の Cloud / Specular は Matt Eason 氏の `live-cloud-maps` を利用しています。
+- データ生成サービス: `live-cloud-maps` / Matt Eason
+- `live-cloud-maps` の権利形態: **CC0 1.0 Universal**
+- `live-cloud-maps` 作者クレジット: **必須ではない / 任意**
+- 元の雲データ: **EUMETSAT**
+- EUMETSAT attribution: **必須**
 
-- Project: https://github.com/matteason/live-cloud-maps
-- Cloud source: https://clouds.matteason.co.uk/images/2048x1024/clouds-alpha.png
-- Specular source: https://clouds.matteason.co.uk/images/2048x1024/specular.jpg
-- Upstream licence: CC0 1.0 Universal（`live-cloud-maps` のコード・画像）
+Project:
 
-元の雲データは EUMETSAT です。Cloud / Specular を利用・再配布する場合は次の attribution を表示してください。
+https://github.com/matteason/live-cloud-maps
 
-> Contains modified EUMETSAT data
+Cloud source:
+
+https://clouds.matteason.co.uk/images/2048x1024/clouds-alpha.png
+
+Specular source:
+
+https://clouds.matteason.co.uk/images/2048x1024/specular.jpg
 
 EUMETSAT Data Policy / Licensing:
 
 https://www.eumetsat.int/eumetsat-data-licensing
+
+必須表記:
+
+> Contains modified EUMETSAT data
 
 表示用クレジット例:
 
@@ -171,11 +262,29 @@ GFS の UGRD / VGRD から、VRChat / Unity の Shader で直接利用できる 
 - Parameters: `UGRD`, `VGRD`
 - Levels: 10 m above ground / 850 hPa / 700 hPa
 
-SolarImeg は取得した U/V 風成分を RGBA データテクスチャへ変換しており、NOAA / NCEP の公式画像をそのまま転載しているものではありません。
+### 権利形態 / ライセンス
+
+NOAA / NWS の米国政府情報は、個別に別の表示があるものを除き、**Public Domain（パブリックドメイン）**として扱われます。
+
+これは MIT や Creative Commons ライセンスではなく、米国政府著作物として著作権保護の対象外となる情報を利用する形態です。
+
+### クレジット要否
+
+通常の著作権ライセンス上の attribution 義務としては扱われませんが、出典の明確化とデータ来歴のため、SolarImeg では **クレジット表示を推奨し、README では表示します**。
 
 表示用クレジット例:
 
 > Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+
+### 主な条件
+
+- NOAA / NWS の情報を自分自身の著作物であると主張しない。
+- NOAA / NWS が SolarImeg や製品・サービスを支持・提携しているように見せない。
+- 改変した情報を NOAA / NWS の公式政府資料であるかのように表示しない。
+- NWS の名称・ロゴ等は商標・識別標章として別途保護される。
+- 米国政府資料を主体とする著作物では、17 U.S.C. §403 に基づく表示が必要になる場合がある。
+
+SolarImeg は取得した U/V 風成分を RGBA データテクスチャへ変換しており、NOAA / NCEP の公式画像をそのまま転載しているものではありません。
 
 ### Wind RGBA データ形式
 
@@ -373,7 +482,7 @@ Wind Texture を sRGB のまま使用する必要がある場合は、Material �
 ```text
 sRGB (Color Texture) = OFF
 Compression          = None 推奨
-Filter Mode          = Bilinear
+Filter Mode           = Bilinear
 ```
 
 sRGB として読み込む場合は `Specular Texture Is sRGB` を ON にしてください。
