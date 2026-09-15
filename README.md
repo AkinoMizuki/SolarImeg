@@ -1,3 +1,7 @@
+# SolarImeg
+
+`SolarImeg` は、太陽画像および Earth Weather 用データを自動取得・加工し、GitHub Pages から配信するプロジェクトです。
+
 ## 更新周期
 
 Earth Weather は毎時 20 分に更新チェックします。
@@ -9,9 +13,9 @@ Cloud / Specular は NOAA/NESDIS Global Mosaic of Geostationary Satellite Imager
 
 ---
 
-## SolarImeg 本体のライセンス
+## 本体のライセンス
 
-このリポジトリ `AkinoMizuki/SolarImeg` 自体には、現時点で GitHub が認識する `LICENSE` が設定されていません。
+このリポジトリ自体には、現時点で GitHub が認識する `LICENSE` が設定されていません。
 
 - リポジトリ本体のライセンス: **未設定**
 - MIT / Apache-2.0 / GPL 等: **現時点では未適用**
@@ -28,17 +32,17 @@ Cloud / Specular は NOAA/NESDIS Global Mosaic of Geostationary Satellite Imager
 | 名古屋市科学館 太陽像 | 名古屋市科学館 | CC BY 2.1 JP | **必須** | `Solar imagery: 名古屋市科学館` |
 | 3時間更新 Cloud / Specular | `live-cloud-maps` / Matt Eason | CC0 1.0 Universal | 作者クレジットは任意 | `Cloud / specular imagery: live-cloud-maps by Matt Eason.` |
 | 3時間更新 Cloud / Specular 元データ | EUMETSAT | EUMETSAT Data Policy / Licensing | **必須** | `Contains modified EUMETSAT data` |
-| Earth Weather Cloud | NOAA / NESDIS GMGSI via NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA は出典表示を要請。SolarImeg では表示 | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
+| Earth Weather Cloud | NOAA / NESDIS GMGSI via NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA 公開データ | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
 | Earth Weather Specular Base | `live-cloud-maps` / Matt Eason の static monthly `specular-base` | CC0 1.0 Universal | 作者クレジットは任意 | `Specular base: live-cloud-maps by Matt Eason.` |
 | Earth Weather Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
 
 Earth Weather をまとめて表示する場合の例:
 
-> Earth Weather — Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified by SolarImeg. Specular base: live-cloud-maps by Matt Eason. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+> Earth Weather — Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified. Specular base: live-cloud-maps by Matt Eason. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
 
 ---
 
-# SolarImeg(SOHO)
+# SOHO
 
 https://akinomizuki.github.io/SolarImeg/latest.jpg
 
@@ -96,7 +100,7 @@ SOHO 公式はクレジットを「requested」としており、次の表記を
 
 ---
 
-# SolarImeg(名古屋市科学館からの太陽像)
+# 名古屋市科学館からの太陽像
 
 https://akinomizuki.github.io/SolarImeg/now_wh.jpg
 
@@ -211,7 +215,7 @@ Earth Weather は Cloud / Specular / Wind をまとめて 1 つの地球気象�
 
 | 対象 | データ元 | 権利形態 / ライセンス | クレジット要否 | 表示用クレジット例 |
 | --- | --- | --- | --- | --- |
-| Cloud | NOAA / NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA は出典表示を要請。SolarImeg では表示 | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
+| Cloud | NOAA / NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), NOAA Open Data Dissemination (NODD) | NOAA 公開データ | NOAA 公開データ | `Cloud imagery: derived from NOAA/NESDIS GMGSI (modified).` |
 | Specular Base | `live-cloud-maps` / Matt Eason の static monthly `specular-base` | CC0 1.0 Universal | 作者クレジットは任意 | `Specular base: live-cloud-maps by Matt Eason.` |
 | Wind | NOAA / NWS / NCEP GFS via NOMADS | 米国政府情報 / Public Domain | 法的 attribution 義務としては通常不要。**Earth Weather では出典明示のため表示推奨** | `Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.` |
 
@@ -228,11 +232,11 @@ Earth Weather の Cloud は NOAA/NESDIS の **Global Mosaic of Geostationary Sat
 
 NOAA Open Data Dissemination (NODD) で配布される GMGSI は公開利用できます。NOAA は未改変データの利用・配布時に attribution を要請しており、NOAA の支持・提携を示唆してはいけません。
 
-SolarImeg の `cloud_previous.png` / `cloud_current.png` は GMGSI の Longwave IR をそのまま転載した画像ではありません。正距円筒化、欠損補完、極域ミラー、絶対 IR と局所コントラストによる雲抽出、RGBA 化を行った **modified / derived product** です。
+`cloud_previous.png` / `cloud_current.png` は GMGSI の Longwave IR をそのまま転載した画像ではありません。正距円筒化、欠損補完、極域ミラー、絶対 IR と局所コントラストによる雲抽出、RGBA 化を行った **modified / derived product** です。
 
 表示用クレジット例:
 
-> Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified by SolarImeg.
+> Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified.
 
 ### Specular Base: live-cloud-maps
 
@@ -281,7 +285,7 @@ Earth Weather は取得した U/V 風成分を RGBA データテクスチャへ�
 
 Earth Weather をシステムとしてまとめて表示する場合は、例えば次のように表記できます。
 
-> Earth Weather — Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified by SolarImeg. Specular base: live-cloud-maps by Matt Eason. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
+> Earth Weather — Cloud imagery: derived from NOAA/NESDIS Global Mosaic of Geostationary Satellite Imagery (GMGSI), modified. Specular base: live-cloud-maps by Matt Eason. Wind data: NOAA/NWS/NCEP Global Forecast System (GFS), accessed via NOMADS.
 
 ## 配信ファイル
 
@@ -482,7 +486,7 @@ Filter Mode           = Bilinear
 ```text
 sRGB (Color Texture) = OFF
 Compression          = None 推奨
-Filter Mode           = Bilinear
+Filter Mode          = Bilinear
 Wrap U               = Repeat
 Wrap V               = Clamp
 ```
