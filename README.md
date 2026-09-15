@@ -3,7 +3,7 @@
 Earth Weather は毎時 20 分に更新チェックします。
 `live-cloud-maps` 側の Cloud / Specular が変わっていない場合は previous/current とその時刻を変更しません。
 
-既存の SOHO・名古屋市科学館・ルートの `clouds.jpg` / `specular.jpg` は従来どおり 3 時間周期で更新します。
+既存の SOHO・名古屋市科学館・ルートの `clouds.jpg` / `specular.jpg` は 3 時間周期で更新します。
 
 `metadata.json` には Cloud / Specular の previous/current 時刻、GFS の run 時刻、forecast hour、valid 時刻、風速の最大エンコード値などを記録します。
 
