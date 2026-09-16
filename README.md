@@ -308,6 +308,14 @@ Earth Weather をシステムとしてまとめて表示する場合は、例え
 
 ## Cloud / Specular
 
+### 画像時刻
+
+- `current`：最新の観測画像
+- `previous`：`current` の約1時間前の観測画像
+
+※ GMGSI の欠測などがある場合、`previous` と `current` の間隔が1時間以上になることがあります。  
+※ Cloud と Specular は同じ観測時刻の組み合わせです。
+
 `weather/cloud_previous.png` / `weather/cloud_current.png` は、GMGSI `GMGSI_LW` の最新 2 観測から生成する 2048 x 1024 の RGBA 雲テクスチャです。
 
 - RGB: 雲の明るさ・陰影
@@ -486,7 +494,7 @@ Filter Mode           = Bilinear
 ```text
 sRGB (Color Texture) = OFF
 Compression          = None 推奨
-Filter Mode           = Bilinear
+Filter Mode          = Bilinear
 Wrap U               = Repeat
 Wrap V               = Clamp
 ```
